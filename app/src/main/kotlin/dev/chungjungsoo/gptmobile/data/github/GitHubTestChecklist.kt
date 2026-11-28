@@ -238,7 +238,7 @@ internal object GitHubTestChecklist {
     /** An argument repair is admissible only for an exact local cursor returned by this facade. */
     private fun savedReadRecovery(receipt: JsonObject): JsonObject? {
         if (receipt["success"] == JsonPrimitive(true)) return null
-        if (receipt.text("error_code") == "GITHUB_PAGINATION_INCOMPLETE") return pullPageCorrection(receipt)
+        if (receipt.text("error_code") == "GITHUB_PAGINATION_INCOMPLETE") return remotePageCorrection(receipt)
         val root = data(receipt) ?: return null
         val recovery = (root["correction_call"] ?: root["recovery_call"] ?: root["source_recovery_call"]) as? JsonObject ?: return null
         val args = recovery["arguments"] as? JsonObject ?: return null
@@ -287,7 +287,7 @@ internal object GitHubTestChecklist {
         // Version-bound schema-directory traversal belongs to GitHubAuthorizedCatalog.
         // It must not consume repository pagination samples or appear as remote reads.
         if (receipt.text("tool") == GitHubAuthorizedCatalog.TOOL) return emptyList()
-        if (receipt["success"] != JsonPrimitive(true)) return listOfNotNull(pullPageCorrection(receipt))
+        if (receipt["success"] != JsonPrimitive(true)) return listOfNotNull(remotePageCorrection(receipt))
         val view = (receipt["view"] as? JsonObject) ?: (receipt["result"] as? JsonObject) ?: return emptyList()
         return buildList {
             // Complete original data satisfies display traversal, never remote pagination.
@@ -303,13 +303,14 @@ internal object GitHubTestChecklist {
     }
 
     /** Incomplete coverage can issue one native read for an observed gap without granting another query. */
-    private fun pullPageCorrection(receipt: JsonObject): JsonObject? {
+    private fun remotePageCorrection(receipt: JsonObject): JsonObject? {
         val name = receipt.text("tool")
+        val family = name.githubOperationFamily()
         if (receipt["trusted"] != JsonPrimitive(true) ||
             receipt["success"] != JsonPrimitive(false) ||
             receipt["verification_eligible"] == JsonPrimitive(false) ||
             receipt["repository_role"] == JsonPrimitive("READ_SOURCE") ||
-            name.githubOperationFamily() != "github_pr" ||
+            family !in setOf("github_pr", "github_context") ||
             receipt.text("error_code") != "GITHUB_PAGINATION_INCOMPLETE"
         ) {
             return null
@@ -328,9 +329,18 @@ internal object GitHubTestChecklist {
         ) {
             return null
         }
-        val expected = when (original.text("action")) {
-            "list" -> JsonObject(original + ("page" to gap))
-            "context" -> GitHubPullFileInventory.recoveryArguments(original, body, gap)
+        val expected = when (family to original.text("action")) {
+            "github_pr" to "list" -> JsonObject(original + ("page" to gap))
+            "github_pr" to "context" -> GitHubPullFileInventory.recoveryArguments(original, body, gap)
+            "github_context" to "commits" -> {
+                // The facade resolves a mutable branch before issuing its gap
+                // recipe. Resume that observed immutable history, preserving
+                // the exact connection, repository, page size and other filters.
+                val pinned = body["commit_sha"] ?: return null
+                val normalized = GitHubInventoryQuery.commitSha(pinned) ?: return null
+                if (listOf("commit_sha", "ref", "branch").mapNotNull { GitHubInventoryQuery.commitSha(original[it]) }.any { it != normalized }) return null
+                JsonObject(original + mapOf("page" to gap, "ref" to pinned, "commit_sha" to pinned))
+            }
             else -> null
         } ?: return null
         return repair.takeIf { it["arguments"] == expected }
@@ -398,12 +408,12 @@ internal object GitHubTestChecklist {
         for ((index, failed) in observations.withIndex()) {
             if (workflowDependencyOnly) continue
             val recovery = savedReadRecovery(failed) ?: continue
-            val pullGap = failed.text("error_code") == "GITHUB_PAGINATION_INCOMPLETE"
-            if (pullGap && !exhaustive && sampled >= 2) continue
+            val remoteGap = failed.text("error_code") == "GITHUB_PAGINATION_INCOMPLETE"
+            if (remoteGap && !exhaustive && sampled >= 2) continue
             val source = recoverySource(recovery) ?: continue
             if (!considered.add(source)) continue
             val args = recovery["arguments"] as JsonObject
-            if (localOnly && !pullGap && "view_cursor" !in args || !permitted(recovery) || same(failed, recovery)) continue
+            if (localOnly && !remoteGap && "view_cursor" !in args || !permitted(recovery) || same(failed, recovery)) continue
             // The durable receipts spend one correction per saved view or exact
             // recovery recipe. A later offset or process restart cannot reset it.
             if ((lastAttempts[source] ?: -1) > index) continue

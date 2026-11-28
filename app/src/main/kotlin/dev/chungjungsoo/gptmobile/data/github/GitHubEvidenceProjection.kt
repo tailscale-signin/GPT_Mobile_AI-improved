@@ -72,8 +72,12 @@ internal object GitHubEvidenceProjection {
         val compact = when {
             source["tool"] == JsonPrimitive(GitHubAuthorizedCatalog.TOOL) -> catalog(original) ?: result(original)
             source["error_code"] == JsonPrimitive("GITHUB_PAGINATION_INCOMPLETE") &&
-                (source["tool"] as? JsonPrimitive)?.content?.githubOperationFamily() == "github_pr" ->
-                result(original, priority = setOf("data", "correction_call", "pagination_progress", "changed_file_coverage", "effective_per_page", "first_unobserved_page", "upstream_changed_during_traversal", "complete", "source", "reason", "head_sha", "base_sha", "schema"))
+                (
+                    (source["tool"] as? JsonPrimitive)?.content?.githubOperationFamily() == "github_pr" ||
+                        (source["tool"] as? JsonPrimitive)?.content?.githubOperationFamily() == "github_context" &&
+                        (source["arguments"] as? JsonObject)?.get("action") == JsonPrimitive("commits")
+                    ) ->
+                result(original, priority = setOf("data", "correction_call", "pagination_progress", "changed_file_coverage", "effective_per_page", "first_unobserved_page", "upstream_changed_during_traversal", "complete", "source", "reason", "commit_sha", "head_sha", "base_sha", "schema"))
             (source["tool"] as? JsonPrimitive)?.content?.githubOperationFamily() == "github_context" &&
                 (source["arguments"] as? JsonObject)?.get("action") == JsonPrimitive("checks") &&
                 original is JsonObject -> result(checkRows(original))

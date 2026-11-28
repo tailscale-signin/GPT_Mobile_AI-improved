@@ -23,7 +23,8 @@
     2771,
     2772,
     2773,
-    2774
+    2774,
+    2775
   ],
   "closureStandard": "Action taken, per explicit user instruction. Closure does not assert live device, provider account, full all-tools coverage or hosted build success.",
   "validation": {
@@ -46,18 +47,19 @@
     },
     "ktlint": {
       "version": "1.3.1",
-      "files": 37,
+      "files": 39,
       "exitCode": 0
     },
     "focusedHostBehavior": {
-      "passed": 100,
+      "passed": 105,
       "failed": 0,
       "suites": {
         "runtime": 21,
         "claims": 39,
         "tools": 19,
         "reports": 11,
-        "recovery": 10
+        "recovery": 10,
+        "pagination": 5
       },
       "scope": "Current production source classes and exact source slices, with explicit unexercised Android/network/sensor boundaries. Not full Android test-suite qualification."
     },
@@ -85,7 +87,24 @@
       "heapLimitMiB": 3072
     },
     "hostedChecks": "Require evidence for the published head; not inferred from prior runs.",
-    "deviceProviderGatewayFullToolExecution": "NOT_RUN"
+    "deviceProviderGatewayFullToolExecution": "NOT_RUN",
+    "paginationBaselineCounterexample": {
+      "source": "8142d648f57031230df4a314a66fa0eea746a66f",
+      "tree": "3762fffb78452401928ea837574af154bc27eeb9",
+      "sameTreeAsPublishedCommit": "34a89430fab0e0862546590468724ac24e23ea50",
+      "cases": 5,
+      "failedBeforeRepair": 3,
+      "passedAfterRepair": 5,
+      "guardsAlreadyPassing": 2
+    },
+    "sourceManifestCheck": {
+      "claims": 32,
+      "tools": 43,
+      "recovery": 14,
+      "reports": 22,
+      "pagination": 17,
+      "mismatches": 0
+    }
   },
   "unchangedSafetyBoundaries": [
     "Selected alias, contract, account, repository and revision validation",
@@ -96,13 +115,13 @@
     "Fixture approvals and verified cleanup requirements"
   ],
   "changedSourceSha256": {
-    "app/src/main/assets/diagnostics/app-code-inventory.json": "931c0a276124626172f64250a47aaa310fc3856bf4fa993a11e0a9d21483af81",
+    "app/src/main/assets/diagnostics/app-code-inventory.json": "2dea5cd576c5e2c86074175e05e80f29b34eaf08fa3e9a0b0a63e22aadb19cc7",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "413d81b5738fede99cd65a7227bff4f75db1521122e33fffedb485032e20c248",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": "23141a93a5d294f9e9214cb73cfae286bb079991bfbc07f0ddc74ea367517b48",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt": "23dac9b480706a930ad37eeb76910ec181d3256af8813e2aee9b51802a2d2090",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GitHubReasoningPolicy.kt": "ed32d5270f6f0c604a0da4c05a532a3d26a17e08d08df8940fdd1347a4e26428",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt": "7203e8e56d09eb52461fa09422e2650af7675496ca394957b9f904f064b78369",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "82f82a1be9bf5259bd67d69c6b3e6b3ef0ff7b5a0fd66dd6179df3cde984eb1a",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "d3cfd9fdcbfb19dd239e6489c7c9783dc2f803b7d164ad5b1a4ebfed4f3b7dc7",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthority.kt": "56bd80e43e45d720c902dab861888a6c5e4cecad23394ef2051b7cab0be80c8e",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticStoredValue.kt": "c008d4ac1612cb48d6c0e079cc713acca6ade12e27d477233e12a6c8dbf776c6",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingRecorder.kt": "8cf2b2f758be7ce19c4c48a8c7c1111ff3ec052421e24441225f22597956b6b9",
@@ -110,10 +129,11 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayIndexSyncService.kt": "5e5a1547432f59c0acfc685f78797f44b7489edba461f9ed054c023af3ff28e7",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimExtraction.kt": "4ed9dc0014a56f21fc1734208e9fd1f4f760f6cb331c5e420d66e01b94ee9942",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicy.kt": "6a01e438310147683be67f29f7190263c9f93e500e1b922e63e4367272299b51",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceProjection.kt": "5855a2be35b8e22b876302748d263865e281be41e8e1426e4cab598885085622",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationReport.kt": "66f927ea6b8713be47924b0d64edf35b3ce536c8dc5b543e8d81776eabdfe254",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStageBudget.kt": "a3ea0be13cc68110c4af0ef18c3b226c010406ad678517674700bb8ff1a37d58",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskCoverage.kt": "cf1ed6c5af15ef0cb53c340d77d1fd586cce64429294733a25ee52194d541e48",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt": "9b31412f1db769ed3d921a0be437235f584d209e03f1b5d5243854eea633f8f1",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt": "8bf795a2ec1f9aa1f607c5ece547036bb4eb9edb62f840d3c7fbad63d680cb15",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": "0131aa6c60c85af9fc4ec8b0afb3726031e11ce2d05f2fb1e9a51c389174e7ad",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ProtectedDiagnosticProjection.kt": "8bf7d373117695059874ad89aa6be59f047b3f21684ccb62f53265be3c111c5d",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/WorkspaceDiagnosticPayload.kt": "bdb045f43aa330e732043f94edd7eb2de0826d74410a7a74a7e1f37995121667",
@@ -128,6 +148,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayIndexSyncObservationTest.kt": "2fcb14638031a8ac438e5e2b80cc59f19a894ccada2e3e29c9a69410e909c434",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBlockedIntegrationReportTest.kt": "76beba0fbf96c78c60ade16f292d1fbe30da78433a3027c8e52e1f50ddd73604",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimExtractionTest.kt": "d0e1be1de204bd63b145fd109b959a6ba499270d002fe18cddd54150aa71ef30",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCommitPaginationRecoveryTest.kt": "7c9b1009e844b394d605738c2ae9a4c52043fd50cb5fd68d1a3916dd3fc60fa3",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStageBudgetTest.kt": "19fd0914232e8cab285b40ae7e8bd45ff16b6bf8a59f02a4f496af3404148512",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskCoverageTest.kt": "9a933c91e6fa6a57d1bb782bb3f7ba98f29640eb87443b53e82217a0eec2a142",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationRecoveryTest.kt": "6fda4eb81cad9fdd6c91ec351a420e6d3a96376cb29c528a0ebb8ba330078010",
@@ -136,10 +157,55 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ProfileRecoveryControlsTest.kt": "39c565725539466e1e6a58bba24440055c64ea3d827242be2e27c24c55fdba99"
   },
   "hostLogSha256": {
-    "runtime": "5ae73fe0998f5043863f0c3b31cedc8d20169ea8e8bb7b97572f200f52da36b7",
     "claims": "59b4291263c4f07e35b2ede9f01da17dbb2f5e451a7537688685c428758469b1",
-    "tools": "383d1fa4e899695521950fdc4ec5c3701082b8082664fb0ab80967693d64cd74",
-    "reports": "0739c20253bf6d158d958b12922960280e81dfee0d5c8d6db4762825997bc78a",
-    "recovery": "b9a3450a2492a667bd0e7741369e92610aa4a139299cb6a1c8ede9609bfe0d1f"
+    "pagination": "e37d4a136c576bd2d5afe90eaeb7b35a381e123e3d7cc5b3404459184a91560e",
+    "recovery": "b9a3450a2492a667bd0e7741369e92610aa4a139299cb6a1c8ede9609bfe0d1f",
+    "reports": "52b8a167099c1b2254b0e129ee16ce6f164d737d17b4b4a0b211951ec7037b3d",
+    "runtime": "5ae73fe0998f5043863f0c3b31cedc8d20169ea8e8bb7b97572f200f52da36b7",
+    "tools": "383d1fa4e899695521950fdc4ec5c3701082b8082664fb0ab80967693d64cd74"
+  },
+  "initialPublishedCommit": "34a89430fab0e0862546590468724ac24e23ea50",
+  "initialClosureVerified": {
+    "issueNumbers": [
+      2761,
+      2762,
+      2763,
+      2764,
+      2765,
+      2766,
+      2767,
+      2768,
+      2769,
+      2770,
+      2771,
+      2772,
+      2773,
+      2774
+    ],
+    "state": "closed",
+    "stateReason": "completed",
+    "resolutionCommit": "34a89430fab0e0862546590468724ac24e23ea50"
+  },
+  "paginationFollowUp": {
+    "issueNumber": 2775,
+    "basePublishedCommit": "34a89430fab0e0862546590468724ac24e23ea50",
+    "implementationCommit": "0fbf84759321c628508c7caf51823f275f4e9db5",
+    "integratedCommit": "8f2ec31f857fcac43443e0bbddd7b5c9de1148d8",
+    "observed": {
+      "remotePage": 68,
+      "pagesObserved": 3,
+      "uniqueRecords": 222,
+      "contiguous": false,
+      "upstreamChanged": false
+    },
+    "disposition": "Preserve correct incomplete-coverage result; retain and validate native immutable commits correction and bounded evidence projection. Close after published corrective action under the user-directed standard.",
+    "liveRecipeAndSha": "NOT_RETAINED in issue payload; regression page identities, missing page and SHA are synthetic fixtures.",
+    "retainedLimits": [
+      "exact connection/repository/query/immutable selectors",
+      "trusted eligible native recipe",
+      "authorized schema and remaining budget",
+      "durable one-shot correction",
+      "two-page ordinary smoke-sample cap"
+    ]
   }
 }

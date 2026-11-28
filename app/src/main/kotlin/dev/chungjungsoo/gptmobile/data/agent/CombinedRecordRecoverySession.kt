@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** Saves validated records and unfinished raw bytes before publishing any record to the delivery decoder. */
 internal class CombinedRecordRecoverySession(
@@ -38,7 +40,25 @@ internal class CombinedRecordRecoverySession(
                 // The initial cursor was saved before any physical attempt was started.
             } else {
                 if (acceptedAppend && (!checkpoint.appendReady || checkpoint.lastAttemptOutcome !in setOf("COMPLETED", "OUTPUT_LIMIT", "KNOWN_PROVIDER_REJECTION"))) {
-                    emit(ProviderEvent.Failed("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN: The previous request's completion is unknown. Saved passages remain available; review before retrying.", errorCode = "COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN"))
+                    emit(
+                        ProviderEvent.Failed(
+                            "COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN: The previous request's completion is unknown. Saved passages remain available; review before retrying.",
+                            errorCode = "COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN",
+                            failureDetails = buildJsonObject {
+                                put("failed_stage", "final_synthesis")
+                                put("failure_origin", "APPLICATION")
+                                put("requires_reconciliation", true)
+                                put("retryable", false)
+                                put("resume_allowed", false)
+                                put("request_replay_allowed", false)
+                                put("logical_continuation_allowed", false)
+                                put("recovery_action", "REVIEW_SAVED_RECOVERY")
+                                // This identifies the saved cursor check, not a provider invocation.
+                                put("causal_id", "${checkpoint.snapshotDigest}:${checkpoint.revisionId}:${checkpoint.recoveryAttempts}")
+                                put("causal_provenance", "EXPLICIT_CAUSE")
+                            }
+                        )
+                    )
                     return@flow
                 }
                 if (acceptedAppend && checkpoint.retryAtMillis?.let { System.currentTimeMillis() < it } == true) {

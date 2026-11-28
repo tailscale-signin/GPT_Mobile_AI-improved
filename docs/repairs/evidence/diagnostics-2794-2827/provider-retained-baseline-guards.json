@@ -1,0 +1,312 @@
+{
+  "dev.chungjungsoo.gptmobile.data.agent.CombinedAppendRecoverySessionTest": {
+    "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAppendRecoverySessionTest.kt",
+    "xml_archive_entry": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.agent.CombinedAppendRecoverySessionTest.xml",
+    "xml_sha256": "b5c72771c1d8edcf43d7b2ab1cc5c630a65d1a6de41807418048c9c9c2f7b5c7",
+    "tests": 13,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "name": "maximumOnlyContractDoesNotInventAContinuationMinimum",
+        "result": "pass"
+      },
+      {
+        "name": "crashOrUncertainTransportNeverGrantsPermissionToRepeat",
+        "result": "pass"
+      },
+      {
+        "name": "malformedRecordCanAppendOnlyAfterTheProviderCompletesAndRawBytesAreSaved",
+        "result": "pass"
+      },
+      {
+        "name": "appendCommitsTheAttemptBoundaryBeforeDispatchAndNeverRewritesThePrefix",
+        "result": "pass"
+      },
+      {
+        "name": "quotaWaitDoesNotPublishSourceFallbackOrSettleTheFinalDelivery",
+        "result": "pass"
+      },
+      {
+        "name": "futureQuotaDeadlineAndRevokedAuthorityStopBeforeDispatch",
+        "result": "pass"
+      },
+      {
+        "name": "duplicateTextWithNewIdsDoesNotResetTheNoProgressBound",
+        "result": "pass"
+      },
+      {
+        "name": "prematureEndContinuesTheSameAnswerUntilItsRequestedVisibleLengthIsMet",
+        "result": "pass"
+      },
+      {
+        "name": "repeatedPrematureEndWithoutNewPassagesStopsAtTheNoProgressBound",
+        "result": "pass"
+      },
+      {
+        "name": "incompleteResponseCannotBeRelabeledAsAKnownQuotaRejection",
+        "result": "pass"
+      },
+      {
+        "name": "cancellationPersistsUnknownCompletionAndUnfinishedBytes",
+        "result": "pass"
+      },
+      {
+        "name": "knownQuotaRejectionPersistsAnExactCursorAndWaitsWithoutAnotherRequest",
+        "result": "pass"
+      },
+      {
+        "name": "exactAndMinimumGoalsUseTheirFullCountWhileApproximateGoalsUseAcceptedTolerance",
+        "result": "pass"
+      }
+    ],
+    "test_source_unchanged": true,
+    "test_sha256": "cfcc0f7c96e64260d04aafe65020a4089df5b31b21ed28e321dbe190d6aea16a"
+  },
+  "dev.chungjungsoo.gptmobile.data.context.ContextBudgetServiceTest": {
+    "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetServiceTest.kt",
+    "xml_archive_entry": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.context.ContextBudgetServiceTest.xml",
+    "xml_sha256": "2d97b7da302be3e926d877006bcc68675848f6f6cf6204839ca2755d3cc5ff60",
+    "tests": 14,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "name": "planningRejectionBindsOnlyTheFixedInputsAndTheActualBudgetSource",
+        "result": "pass"
+      },
+      {
+        "name": "privacy depends on endpoint rather than llama or ollama label",
+        "result": "pass"
+      },
+      {
+        "name": "small text only contexts do not reserve space for unavailable tools",
+        "result": "pass"
+      },
+      {
+        "name": "tool result reservation remains visible when the current input cannot fit",
+        "result": "pass"
+      },
+      {
+        "name": "discovery only accepts a matching model and explicit bounded context limit",
+        "result": "pass"
+      },
+      {
+        "name": "implicit output can use remaining headroom while explicit output preserves its allowance",
+        "result": "pass"
+      },
+      {
+        "name": "oversize current message fails visibly rather than dropping the user request",
+        "result": "pass"
+      },
+      {
+        "name": "smallToolRoutesPageSavedEvidenceBeforeAssemblingTheCurrentTurn",
+        "result": "pass"
+      },
+      {
+        "name": "defaults preserve context and use fifty tool calls",
+        "result": "pass"
+      },
+      {
+        "name": "olderEvidenceCanMatchTheEndOfALongQuestionAndMessage",
+        "result": "pass"
+      },
+      {
+        "name": "tools history and output share one context reservation without dropping current input",
+        "result": "pass"
+      },
+      {
+        "name": "context reservation does not silently lower explicit output limits",
+        "result": "pass"
+      },
+      {
+        "name": "ordinaryWindowPreservesGoalRecentTurnAndOlderMatchingEvidence",
+        "result": "pass"
+      },
+      {
+        "name": "explicit output limits above the old cap are retained",
+        "result": "pass"
+      }
+    ],
+    "test_source_unchanged": true,
+    "test_sha256": "a9b4a188b79b1dcd5cdd10c7d0af039938b01435eb303c40f9d91f5293c90bf7"
+  },
+  "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest": {
+    "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmissionTest.kt",
+    "xml_archive_entry": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest.xml",
+    "xml_sha256": "9f69a9d34b6cf89a6516a44ed65249be5795bf5a0a96ce6a997857feccfd9790",
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "name": "auxiliaryUnknownCapacityUsesAnExplicitConservativeCeiling",
+        "result": "pass"
+      },
+      {
+        "name": "ix01ZeroMeansNoExtraCapAndDefaultsKeepTheirProvenance",
+        "result": "pass"
+      },
+      {
+        "name": "lcT02OverflowAndUnknownCapacityCannotBecomeSuccessfulBudgetChecks",
+        "result": "pass"
+      },
+      {
+        "name": "lcT01BoundaryPassesOneTokenOverflowBlocksAndWireCannotChange",
+        "result": "pass"
+      },
+      {
+        "name": "lcT03PropsUseActualAllocationWithoutBlindSlotDivision",
+        "result": "pass"
+      }
+    ],
+    "test_source_unchanged": true,
+    "test_sha256": "ac01a633a568f1fd1e3309f5d5447a0b4610c7b936c6ae78eb3600c7aaa81a2f"
+  },
+  "dev.chungjungsoo.gptmobile.data.delegation.WriterLoadReadinessTest": {
+    "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/delegation/WriterLoadReadinessTest.kt",
+    "xml_archive_entry": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.delegation.WriterLoadReadinessTest.xml",
+    "xml_sha256": "be861fa28c7c4da195659b23c21079b8c175e3f65090cecc39447c5be3d5c671",
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "name": "genericServerErrorIsNotMisclassifiedAsModelLoadFailure",
+        "result": "pass"
+      },
+      {
+        "name": "anonymousProviderDenialExpiresAcrossRestartsWithoutChangingKeyedProviderPolicy",
+        "result": "pass"
+      },
+      {
+        "name": "billingDenialSurvivesRestartWithAccountGuidanceAndExplicitRecheck",
+        "result": "pass"
+      },
+      {
+        "name": "modelLoadCooldownIsScopedExpiresAndCanBeExplicitlyRechecked",
+        "result": "pass"
+      },
+      {
+        "name": "streamQuotaPauseSurvivesRestartAndAllowsAChangedCredentialOrAnExplicitRecheck",
+        "result": "pass"
+      }
+    ],
+    "test_source_unchanged": true,
+    "test_sha256": "51f87f5014ac4b8c89c81fcea6a5b629269f1a4c06d2697200e3443a8f16784a"
+  },
+  "dev.chungjungsoo.gptmobile.data.diagnostics.ProviderQuotaIncidentGroupingTest": {
+    "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderQuotaIncidentGroupingTest.kt",
+    "xml_archive_entry": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.diagnostics.ProviderQuotaIncidentGroupingTest.xml",
+    "xml_sha256": "d34d410c7965b634f62f7ac2b56289e9b00f9a7ad459d5202096ffd4894a8090",
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "name": "differentProviderProfileCauseOrTimeWindowRetainsSeparateReports",
+        "result": "pass"
+      },
+      {
+        "name": "repeatedPendingQuotaRetainsTheFirstIncidentAndDistinctInvocationEvidence",
+        "result": "pass"
+      },
+      {
+        "name": "missingFirstConfigurationCannotBorrowTheNextReportsIdentity",
+        "result": "pass"
+      },
+      {
+        "name": "anAlreadyObservedInvocationDoesNotCreateAnotherReportAtTheDistinctOccurrenceLimit",
+        "result": "pass"
+      },
+      {
+        "name": "compactedUnknownUpstreamCausesKeepTheirRetainedHashIdentity",
+        "result": "pass"
+      }
+    ],
+    "test_source_unchanged": true,
+    "test_sha256": "a0271b77a80b24540156436c8eebbce51f5d197d97bea448f55636d430ed4c88"
+  },
+  "dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailureTest": {
+    "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailureTest.kt",
+    "xml_archive_entry": "GPT_Mobile_AI-improved/GPT_Mobile_AI-improved/app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailureTest.xml",
+    "xml_sha256": "e9d9fd376905f08ebbea09106c874f407d0f6edbe9a20f27fac06ba8ff189274",
+    "tests": 16,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "name": "semanticRateLimitRetainsActualHttpSuccessAndTheDurableWaitDeadline",
+        "result": "pass"
+      },
+      {
+        "name": "arbitraryUpstreamCodesAndTextDoNotEnterRetainedClassification",
+        "result": "pass"
+      },
+      {
+        "name": "gatewayAdmissionRejectionDoesNotBecomeAnInferenceDispatchAfterHttpNormalization",
+        "result": "pass"
+      },
+      {
+        "name": "documentedContractFailureRetainsItsCorrectionAndCannotBecomeARetry",
+        "result": "pass"
+      },
+      {
+        "name": "assemblerKeepsPartialReasoningAcceptanceAndFailedResponseUsage",
+        "result": "pass"
+      },
+      {
+        "name": "acceptedStreamWithExhaustedCreditsRequiresConfigurationInsteadOfRetry",
+        "result": "pass"
+      },
+      {
+        "name": "documentedBudgetMetadataKeepsSpecificGuidanceWithoutRetainingProviderText",
+        "result": "pass"
+      },
+      {
+        "name": "anHttpErrorWithoutInferenceEvidenceKeepsThatStageUnknown",
+        "result": "pass"
+      },
+      {
+        "name": "unknownRemoteOutcomeKeepsReconciliationEvenWhenTheCurrentErrorIsBilling",
+        "result": "pass"
+      },
+      {
+        "name": "structuredTemplateContractOverridesAGenericTransientBackendCode",
+        "result": "pass"
+      },
+      {
+        "name": "inFlightBudgetTimingRequiresAValidHeaderAndAnUnacceptedRequest",
+        "result": "pass"
+      },
+      {
+        "name": "transientStreamFailureRetainsPriorPayloadAndForbidsWholeRequestReplay",
+        "result": "pass"
+      },
+      {
+        "name": "failedResponseAndHttpRejectionUseTheSameBudgetCategory",
+        "result": "pass"
+      },
+      {
+        "name": "structuredUnknownCommandOutcomeOutranksTheLatestRequestRejection",
+        "result": "pass"
+      },
+      {
+        "name": "malformedBudgetReasonsAndContradictoryAcceptanceNeverAcquireManualRetryTiming",
+        "result": "pass"
+      },
+      {
+        "name": "explicitRetryRestrictionAlsoForbidsReplayAndAutomaticContinuationGuidance",
+        "result": "pass"
+      }
+    ],
+    "test_source_unchanged": true,
+    "test_sha256": "c281cece58c5619add14de32685c5fa85d93169a987a9ce95f5485b13812d50c"
+  }
+}

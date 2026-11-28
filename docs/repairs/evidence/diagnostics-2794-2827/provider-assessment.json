@@ -1,0 +1,996 @@
+{
+  "intake_scope": [
+    2800,
+    2801,
+    2802,
+    2812,
+    2813,
+    2822,
+    2823,
+    2824,
+    2825,
+    2826
+  ],
+  "input_path": "/workspace/scratch/49479c165f4e/new-issues-2794-2827.json",
+  "input_sha256": "4b0e0bc31178354ecc5b7c7dfb0dabefa67d903dbd2d7dbd18b85d53506fa2c3",
+  "reviewed_commit": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+  "captured_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+  "captured_tree": "41702557ff02f70781efed4eab8a7abc593ab508",
+  "captured_tree_equals_d45": true,
+  "all_10_approved_payload_digests_verified": true,
+  "source_evidence": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetService.kt": {
+      "captured_sha256": "cfc1bc722c5e2b0cca814491eac56e5f96028d2445992e96b68574e429c62481",
+      "reviewed_sha256": "cfc1bc722c5e2b0cca814491eac56e5f96028d2445992e96b68574e429c62481",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt": {
+      "captured_sha256": "a7a58100d4587b6b58ed9bba873a52712d80bf2078116c1e399899f3ed1735c9",
+      "reviewed_sha256": "a7a58100d4587b6b58ed9bba873a52712d80bf2078116c1e399899f3ed1735c9",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt": {
+      "captured_sha256": "fcd2ff596c27ae09909013fd3e88c7a199d9bfaa2d6fae15f1ff73efd7a85859",
+      "reviewed_sha256": "fcd2ff596c27ae09909013fd3e88c7a199d9bfaa2d6fae15f1ff73efd7a85859",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt": {
+      "captured_sha256": "d908ebfe7a1926762253cfa6c15a0aa56fb38376e708163e99728a8159c6eec4",
+      "reviewed_sha256": "d908ebfe7a1926762253cfa6c15a0aa56fb38376e708163e99728a8159c6eec4",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt": {
+      "captured_sha256": "db30222199badf5d69a8cdd6b3fb5ceb30dc67b843269cf7e2052ee25d42a750",
+      "reviewed_sha256": "db30222199badf5d69a8cdd6b3fb5ceb30dc67b843269cf7e2052ee25d42a750",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/CapacityAdmissionEvidence.kt": {
+      "captured_sha256": "96592018e74ee2af27b21c4c2397d7af6cedaaee7b5b6bd0b6ac1c9a02fb73a3",
+      "reviewed_sha256": "96592018e74ee2af27b21c4c2397d7af6cedaaee7b5b6bd0b6ac1c9a02fb73a3",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderFailure.kt": {
+      "captured_sha256": "3dde1ef5df0aa6c28032f5b8d6288ac81e0feabc0b60b3e6d93c28119d823845",
+      "reviewed_sha256": "3dde1ef5df0aa6c28032f5b8d6288ac81e0feabc0b60b3e6d93c28119d823845",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailure.kt": {
+      "captured_sha256": "04752bbeb8fca2935e50eb15e4382cf918bb31252fd90275666e956e6ee3b17b",
+      "reviewed_sha256": "04752bbeb8fca2935e50eb15e4382cf918bb31252fd90275666e956e6ee3b17b",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderBudgetEvidence.kt": {
+      "captured_sha256": "50ead6d2f251eb8d2cf9d0d6342838c775fd0f707372b6adf5319c68f4c3ac63",
+      "reviewed_sha256": "50ead6d2f251eb8d2cf9d0d6342838c775fd0f707372b6adf5319c68f4c3ac63",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/delegation/KnownWriterFailures.kt": {
+      "captured_sha256": "3c37ca7a4ca667350ce57d382232b432dfc041028728b5cf6f60df731f80c95a",
+      "reviewed_sha256": "3c37ca7a4ca667350ce57d382232b432dfc041028728b5cf6f60df731f80c95a",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderQuotaIncidentGrouping.kt": {
+      "captured_sha256": "21e18452308e4a865ce8851633c0ed2d492b43bcfdf88e65ee46600e914ee42d",
+      "reviewed_sha256": "21e18452308e4a865ce8851633c0ed2d492b43bcfdf88e65ee46600e914ee42d",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordRecoverySession.kt": {
+      "captured_sha256": "985d111a71025c758e98634313ffc3f435c708284dc01c234a89d5730bd14a04",
+      "reviewed_sha256": "985d111a71025c758e98634313ffc3f435c708284dc01c234a89d5730bd14a04",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedWriterRequestPlan.kt": {
+      "captured_sha256": "28929d2bef93172fc1fb8284b41eae7854cd6d7cbc574f3be66ee21d801f1e47",
+      "reviewed_sha256": "28929d2bef93172fc1fb8284b41eae7854cd6d7cbc574f3be66ee21d801f1e47",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecoveryFailure.kt": {
+      "captured_sha256": "c7312b8ee1a7bbbd90f0294c33344468d6886433ecf4fba1d4846b4c19c7a609",
+      "reviewed_sha256": "c7312b8ee1a7bbbd90f0294c33344468d6886433ecf4fba1d4846b4c19c7a609",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt": {
+      "captured_sha256": "710d6e956a4d5b0c8880a76964cc6a5089fee23eb4f35c8a27d05dc3cb90eebd",
+      "reviewed_sha256": "710d6e956a4d5b0c8880a76964cc6a5089fee23eb4f35c8a27d05dc3cb90eebd",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt": {
+      "captured_sha256": "af82dafa368f2abd300e20ed9f4534fcb6cd12ab8c72fb5313757a0033965113",
+      "reviewed_sha256": "af82dafa368f2abd300e20ed9f4534fcb6cd12ab8c72fb5313757a0033965113",
+      "byte_identical": true
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt": {
+      "captured_sha256": "5e9f13b83d4e50b5f22b6c140f1bd84ed670a730ff43a1ac3876f05b4e6b19a3",
+      "reviewed_sha256": "5e9f13b83d4e50b5f22b6c140f1bd84ed670a730ff43a1ac3876f05b4e6b19a3",
+      "byte_identical": true
+    }
+  },
+  "existing_android_guard_evidence": {
+    "workflow_run": 46100072073,
+    "artifact_id": 15246358145,
+    "head_sha": "d45c75f0161c8377ff9041e42c4e8715c6eed1f9",
+    "archive_sha256": "74bb63095e3ed1cc776d6581ede0e30787c3cfc674788ef524c5649fd7c82bd5",
+    "selected_cases": 58,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "receipts_path": "/workspace/scratch/49479c165f4e/provider-report-evidence/baseline-guard-receipts.json",
+    "scope": "Existing actual Android baseline receipts, not a newly executed merged-head suite. Referenced original tests and reviewed guard sources are individually source-bound; the new2826 regression is separately qualified."
+  },
+  "current_focused_evidence": {
+    "path": "/workspace/scratch/49479c165f4e/provider-2826-host/current/qualification.json",
+    "tests": 8,
+    "failures": 0,
+    "scope": "Full restored-cursor Session/Protocol plus exact chatFailure method, real closed context projection and four RequestAdmission checks; explicit ports and Android-publication exclusion in manifest."
+  },
+  "external_mutations_performed": true,
+  "issues": [
+    {
+      "issue": 2800,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2800",
+      "evidence": {
+        "report_id": "baed4d34-5ac9-4f04-94e7-fef70b68e366",
+        "approved_payload_sha256": "de7d76ef3c330b4d1835578a3171d6b344e558bcdf3fb4e99df23128d5c2b553",
+        "approved_payload_digest_verified": true,
+        "captured_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "occurred_at_millis": 1795841091510,
+        "time_utc": "2026-11-28T04:44:51.510000+00:00",
+        "error_code": "CONTEXT_CAPACITY_EXCEEDED",
+        "provider": "GROQ",
+        "run_id_hash": "96f80da6c3120138318956d54c48cd5a45004326b170dbbcff6fedf5dbf44c8e",
+        "stage": "provider_admission",
+        "dispatched": false,
+        "retryable": false,
+        "recoveryAction": "REPLAN_REQUEST_BUDGET",
+        "admission_prompt_tokens": 2386,
+        "admission_system_tokens": 1316,
+        "admission_current_request_tokens": 1070,
+        "admission_safety_tokens": 724,
+        "admission_tool_result_reserve_tokens": 512,
+        "admission_output_tokens": 768,
+        "admission_capacity_tokens": 4096,
+        "admission_capacity_provenance": "CONSERVATIVE_POLICY",
+        "admission_measurement": "UTF8_ESTIMATE",
+        "request_replay_allowed": false,
+        "incident_origin": "APPLICATION",
+        "admission_configured_context_tokens": 4096,
+        "derived_budget": {
+          "formula": "prompt + uncertainty safety + reserved tool results + output",
+          "input_with_safety_and_tool_reserve": 3622,
+          "total_reserved_tokens": 4390,
+          "capacity_tokens": 4096,
+          "over_by_tokens": 294,
+          "remaining_output_headroom": 474
+        }
+      },
+      "finding": "Application-side planning correctly stopped an undispatched GROQ request: 4390 total reserved tokens exceeds 4096 by 294. The tool-result reserve is separate from the reported safety amount. The 4096 value is a conservative planning allowance for unverified route capacity, not a measured provider model limit or proof of a user-selected cap.",
+      "current_code_path": [
+        "ReplayAllowance.conservativeToolPlanningBudget: conservative 4096 / output 768 only for unknown capacity and required tool evidence.",
+        "ContextBudgetService.plan: current/system/required input, reserve and safety are charged before dispatch; explicit output is not silently discarded.",
+        "RequestCapacityException.capacityGuidance: distinguishes zero input headroom from output-only mismatch; RequestAdmission enforces the final prepared-request invariant."
+      ],
+      "action_taken": "Verified every reported component and its arithmetic, traced current admission and recovery guidance, bound the current unchanged guard sources to existing Android test receipts, and ran four focused current-source RequestAdmission guard cases. No app admission defect reproduced; retain the guard and document this report individually. Posted the individual evidence-backed disposition, closed the report under explicit action-taken authorization, and verified the exact comment, unchanged approved payload, closed state and completed reason.",
+      "recovery": "Review the saved request and explicitly adjust output or use a larger verified route; only 474 output tokens remain under the reported unchanged input/reserves.",
+      "recommended_disposition": "close_after_documented_protective_guard_analysis",
+      "code_change_needed": false,
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetService.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/CapacityAdmissionEvidence.kt"
+      ],
+      "source_line_evidence": [
+        "ContextBudgetService.kt:102-149",
+        "ReplayAllowance.kt:15-18",
+        "RequestAdmission.kt:112-125",
+        "RequestCapacityException.kt:58-72",
+        "CapacityAdmissionEvidence.kt:24-43",
+        "ProviderRouteCapacity.kt:47-69"
+      ],
+      "existing_android_classes": [
+        "dev.chungjungsoo.gptmobile.data.context.ContextBudgetServiceTest",
+        "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest"
+      ],
+      "limits": [
+        "Counts are UTF8_ESTIMATE values, not serving-tokenizer measurements.",
+        "Raw request, schemas, route catalog observation and subsequent replan outcome are absent; no lost request content or successful recovery is claimed.",
+        "Nearby DNS/tool/Combined events are contextual logs, not causal proof for this run. Distinct run hashes remain separate reports."
+      ],
+      "external_action": {
+        "status": "verified_closed",
+        "comment_id": 7234643607,
+        "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2800#issuecomment-7234643607",
+        "closed_at": "2026-11-28T05:24:09Z",
+        "readback_state": "closed",
+        "readback_state_reason": "completed",
+        "comment_readback_verified": true,
+        "approved_payload_readback_match": true
+      }
+    },
+    {
+      "issue": 2801,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2801",
+      "evidence": {
+        "report_id": "1a2c9c18-8d31-4a03-a91b-ee21c6b439eb",
+        "approved_payload_sha256": "22c98b340542bb2ac12cab81b2914b61ffb665c56329f7d1f9b94553fc952da5",
+        "approved_payload_digest_verified": true,
+        "captured_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "occurred_at_millis": 1795841091513,
+        "time_utc": "2026-11-28T04:44:51.513000+00:00",
+        "error_code": "CONTEXT_CAPACITY_EXCEEDED",
+        "provider": "OPENAI",
+        "run_id_hash": "9bbea8e8bd53c9f89e2b736c4947573329385ed936c1bac3fd92fcf1c1995b9c",
+        "stage": "provider_admission",
+        "dispatched": false,
+        "retryable": false,
+        "recoveryAction": "REPLAN_REQUEST_BUDGET",
+        "admission_prompt_tokens": 2386,
+        "admission_system_tokens": 1316,
+        "admission_current_request_tokens": 1070,
+        "admission_safety_tokens": 724,
+        "admission_tool_result_reserve_tokens": 512,
+        "admission_output_tokens": 768,
+        "admission_capacity_tokens": 4096,
+        "admission_capacity_provenance": "CONSERVATIVE_POLICY",
+        "admission_measurement": "UTF8_ESTIMATE",
+        "request_replay_allowed": false,
+        "incident_origin": "APPLICATION",
+        "admission_configured_context_tokens": 4096,
+        "derived_budget": {
+          "formula": "prompt + uncertainty safety + reserved tool results + output",
+          "input_with_safety_and_tool_reserve": 3622,
+          "total_reserved_tokens": 4390,
+          "capacity_tokens": 4096,
+          "over_by_tokens": 294,
+          "remaining_output_headroom": 474
+        }
+      },
+      "finding": "Application-side planning correctly stopped an undispatched OPENAI request: 4390 total reserved tokens exceeds 4096 by 294. The tool-result reserve is separate from the reported safety amount. The 4096 value is a conservative planning allowance for unverified route capacity, not a measured provider model limit or proof of a user-selected cap.",
+      "current_code_path": [
+        "ReplayAllowance.conservativeToolPlanningBudget: conservative 4096 / output 768 only for unknown capacity and required tool evidence.",
+        "ContextBudgetService.plan: current/system/required input, reserve and safety are charged before dispatch; explicit output is not silently discarded.",
+        "RequestCapacityException.capacityGuidance: distinguishes zero input headroom from output-only mismatch; RequestAdmission enforces the final prepared-request invariant."
+      ],
+      "action_taken": "Verified every reported component and its arithmetic, traced current admission and recovery guidance, bound the current unchanged guard sources to existing Android test receipts, and ran four focused current-source RequestAdmission guard cases. No app admission defect reproduced; retain the guard and document this report individually. Posted the individual evidence-backed disposition, closed the report under explicit action-taken authorization, and verified the exact comment, unchanged approved payload, closed state and completed reason.",
+      "recovery": "Review the saved request and explicitly adjust output or use a larger verified route; only 474 output tokens remain under the reported unchanged input/reserves.",
+      "recommended_disposition": "close_after_documented_protective_guard_analysis",
+      "code_change_needed": false,
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetService.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/CapacityAdmissionEvidence.kt"
+      ],
+      "source_line_evidence": [
+        "ContextBudgetService.kt:102-149",
+        "ReplayAllowance.kt:15-18",
+        "RequestAdmission.kt:112-125",
+        "RequestCapacityException.kt:58-72",
+        "CapacityAdmissionEvidence.kt:24-43",
+        "ProviderRouteCapacity.kt:47-69"
+      ],
+      "existing_android_classes": [
+        "dev.chungjungsoo.gptmobile.data.context.ContextBudgetServiceTest",
+        "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest"
+      ],
+      "limits": [
+        "Counts are UTF8_ESTIMATE values, not serving-tokenizer measurements.",
+        "Raw request, schemas, route catalog observation and subsequent replan outcome are absent; no lost request content or successful recovery is claimed.",
+        "Nearby DNS/tool/Combined events are contextual logs, not causal proof for this run. Distinct run hashes remain separate reports."
+      ],
+      "external_action": {
+        "status": "verified_closed",
+        "comment_id": 7234655815,
+        "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2801#issuecomment-7234655815",
+        "closed_at": "2026-11-28T05:25:02Z",
+        "readback_state": "closed",
+        "readback_state_reason": "completed",
+        "comment_readback_verified": true,
+        "approved_payload_readback_match": true
+      }
+    },
+    {
+      "issue": 2802,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2802",
+      "evidence": {
+        "report_id": "8d9bbe8c-cf89-4a7b-bf7b-3d7df45d7d86",
+        "approved_payload_sha256": "59a72f63e6a319697e7af3e33b612b43cd2bd5be02146f0009ccaa99579c253c",
+        "approved_payload_digest_verified": true,
+        "captured_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "occurred_at_millis": 1795841091516,
+        "time_utc": "2026-11-28T04:44:51.516000+00:00",
+        "error_code": "CONTEXT_CAPACITY_EXCEEDED",
+        "provider": "CUSTOM",
+        "run_id_hash": "fd8111fd04168496df1e7e656a0ab658c95788f7008ac7805519f74da45edd64",
+        "stage": "provider_admission",
+        "dispatched": false,
+        "retryable": false,
+        "recoveryAction": "REPLAN_REQUEST_BUDGET",
+        "admission_prompt_tokens": 2386,
+        "admission_system_tokens": 1316,
+        "admission_current_request_tokens": 1070,
+        "admission_safety_tokens": 724,
+        "admission_tool_result_reserve_tokens": 512,
+        "admission_output_tokens": 768,
+        "admission_capacity_tokens": 4096,
+        "admission_capacity_provenance": "CONSERVATIVE_POLICY",
+        "admission_measurement": "UTF8_ESTIMATE",
+        "request_replay_allowed": false,
+        "incident_origin": "APPLICATION",
+        "admission_configured_context_tokens": 4096,
+        "derived_budget": {
+          "formula": "prompt + uncertainty safety + reserved tool results + output",
+          "input_with_safety_and_tool_reserve": 3622,
+          "total_reserved_tokens": 4390,
+          "capacity_tokens": 4096,
+          "over_by_tokens": 294,
+          "remaining_output_headroom": 474
+        }
+      },
+      "finding": "Application-side planning correctly stopped an undispatched CUSTOM request: 4390 total reserved tokens exceeds 4096 by 294. The tool-result reserve is separate from the reported safety amount. The 4096 value is a conservative planning allowance for unverified route capacity, not a measured provider model limit or proof of a user-selected cap.",
+      "current_code_path": [
+        "ReplayAllowance.conservativeToolPlanningBudget: conservative 4096 / output 768 only for unknown capacity and required tool evidence.",
+        "ContextBudgetService.plan: current/system/required input, reserve and safety are charged before dispatch; explicit output is not silently discarded.",
+        "RequestCapacityException.capacityGuidance: distinguishes zero input headroom from output-only mismatch; RequestAdmission enforces the final prepared-request invariant."
+      ],
+      "action_taken": "Verified every reported component and its arithmetic, traced current admission and recovery guidance, bound the current unchanged guard sources to existing Android test receipts, and ran four focused current-source RequestAdmission guard cases. No app admission defect reproduced; retain the guard and document this report individually. Posted the individual evidence-backed disposition, closed the report under explicit action-taken authorization, and verified the exact comment, unchanged approved payload, closed state and completed reason.",
+      "recovery": "Review the saved request and explicitly adjust output or use a larger verified route; only 474 output tokens remain under the reported unchanged input/reserves.",
+      "recommended_disposition": "close_after_documented_protective_guard_analysis",
+      "code_change_needed": false,
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetService.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/CapacityAdmissionEvidence.kt"
+      ],
+      "source_line_evidence": [
+        "ContextBudgetService.kt:102-149",
+        "ReplayAllowance.kt:15-18",
+        "RequestAdmission.kt:112-125",
+        "RequestCapacityException.kt:58-72",
+        "CapacityAdmissionEvidence.kt:24-43",
+        "ProviderRouteCapacity.kt:47-69"
+      ],
+      "existing_android_classes": [
+        "dev.chungjungsoo.gptmobile.data.context.ContextBudgetServiceTest",
+        "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest"
+      ],
+      "limits": [
+        "Counts are UTF8_ESTIMATE values, not serving-tokenizer measurements.",
+        "Raw request, schemas, route catalog observation and subsequent replan outcome are absent; no lost request content or successful recovery is claimed.",
+        "Nearby DNS/tool/Combined events are contextual logs, not causal proof for this run. Distinct run hashes remain separate reports."
+      ],
+      "external_action": {
+        "status": "verified_closed",
+        "comment_id": 7234656374,
+        "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2802#issuecomment-7234656374",
+        "closed_at": "2026-11-28T05:25:05Z",
+        "readback_state": "closed",
+        "readback_state_reason": "completed",
+        "comment_readback_verified": true,
+        "approved_payload_readback_match": true
+      }
+    },
+    {
+      "issue": 2812,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2812",
+      "evidence": {
+        "report_id": "d5cc0d57-eb6e-4963-96a2-6ace102b0358",
+        "approved_payload_sha256": "9d8db453b5db8f6cf5ebdb05731e9b8126caa3e833fbf37aea3b004014b3e61a",
+        "approved_payload_digest_verified": true,
+        "captured_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "occurred_at_millis": 1795841370681,
+        "time_utc": "2026-11-28T04:49:30.681000+00:00",
+        "error_code": "CONTEXT_CAPACITY_EXCEEDED",
+        "provider": "LLAMA",
+        "run_id_hash": "d9bcce91911593d9080cdd5e3cd882302c2ad96543a32f47c1b8436b4d382e33",
+        "stage": "provider_admission",
+        "dispatched": false,
+        "retryable": false,
+        "recoveryAction": "REPLAN_REQUEST_BUDGET",
+        "admission_prompt_tokens": 3473,
+        "admission_system_tokens": 1811,
+        "admission_current_request_tokens": 1662,
+        "admission_safety_tokens": 1044,
+        "admission_tool_result_reserve_tokens": 704,
+        "admission_output_tokens": 1408,
+        "admission_capacity_tokens": 5632,
+        "admission_capacity_provenance": "VERIFIED_ROUTE",
+        "admission_measurement": "UTF8_ESTIMATE",
+        "request_replay_allowed": false,
+        "incident_origin": "APPLICATION",
+        "admission_route_context_tokens": 5632,
+        "derived_budget": {
+          "formula": "prompt + uncertainty safety + reserved tool results + output",
+          "input_with_safety_and_tool_reserve": 5221,
+          "total_reserved_tokens": 6629,
+          "capacity_tokens": 5632,
+          "over_by_tokens": 997,
+          "remaining_output_headroom": 411
+        }
+      },
+      "finding": "Application-side planning correctly stopped an undispatched LLAMA request: 6629 total reserved tokens exceeds 5632 by 997. The tool-result reserve is separate from the reported safety amount.",
+      "current_code_path": [
+        "ReplayAllowance.conservativeToolPlanningBudget: conservative 4096 / output 768 only for unknown capacity and required tool evidence.",
+        "ContextBudgetService.plan: current/system/required input, reserve and safety are charged before dispatch; explicit output is not silently discarded.",
+        "RequestCapacityException.capacityGuidance: distinguishes zero input headroom from output-only mismatch; RequestAdmission enforces the final prepared-request invariant."
+      ],
+      "action_taken": "Verified every reported component and its arithmetic, traced current admission and recovery guidance, bound the current unchanged guard sources to existing Android test receipts, and ran four focused current-source RequestAdmission guard cases. No app admission defect reproduced; retain the guard and document this report individually. Posted the individual evidence-backed disposition, closed the report under explicit action-taken authorization, and verified the exact comment, unchanged approved payload, closed state and completed reason.",
+      "recovery": "Review the saved request and explicitly adjust output or use a larger verified route; only 411 output tokens remain under the reported unchanged input/reserves.",
+      "recommended_disposition": "close_after_documented_protective_guard_analysis",
+      "code_change_needed": false,
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetService.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/CapacityAdmissionEvidence.kt"
+      ],
+      "source_line_evidence": [
+        "ContextBudgetService.kt:102-149",
+        "ReplayAllowance.kt:15-18",
+        "RequestAdmission.kt:112-125",
+        "RequestCapacityException.kt:58-72",
+        "CapacityAdmissionEvidence.kt:24-43",
+        "ProviderRouteCapacity.kt:47-69"
+      ],
+      "existing_android_classes": [
+        "dev.chungjungsoo.gptmobile.data.context.ContextBudgetServiceTest",
+        "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest"
+      ],
+      "limits": [
+        "Counts are UTF8_ESTIMATE values, not serving-tokenizer measurements.",
+        "Raw request, schemas, route catalog observation and subsequent replan outcome are absent; no lost request content or successful recovery is claimed.",
+        "Nearby DNS/tool/Combined events are contextual logs, not causal proof for this run. Distinct run hashes remain separate reports."
+      ],
+      "external_action": {
+        "status": "verified_closed",
+        "comment_id": 7234657107,
+        "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2812#issuecomment-7234657107",
+        "closed_at": "2026-11-28T05:25:10Z",
+        "readback_state": "closed",
+        "readback_state_reason": "completed",
+        "comment_readback_verified": true,
+        "approved_payload_readback_match": true
+      }
+    },
+    {
+      "issue": 2813,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2813",
+      "evidence": {
+        "report_id": "c9e5d35f-1da7-4ca9-b519-4f1da6a8d5bd",
+        "approved_payload_sha256": "24521a369488c4d2f92de1f6afdc56886bac5098248a22886d3dae477fa8e260",
+        "approved_payload_digest_verified": true,
+        "captured_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "occurred_at_millis": 1795841370685,
+        "time_utc": "2026-11-28T04:49:30.685000+00:00",
+        "error_code": "CONTEXT_CAPACITY_EXCEEDED",
+        "provider": "GROQ",
+        "run_id_hash": "6ce75a3437652a488cb2fb2179ee78e7b04084bdde36c66a5ff2c48e45154e0b",
+        "stage": "provider_admission",
+        "dispatched": false,
+        "retryable": false,
+        "recoveryAction": "REPLAN_REQUEST_BUDGET",
+        "admission_prompt_tokens": 2829,
+        "admission_system_tokens": 1804,
+        "admission_current_request_tokens": 1025,
+        "admission_safety_tokens": 835,
+        "admission_tool_result_reserve_tokens": 512,
+        "admission_output_tokens": 768,
+        "admission_capacity_tokens": 4096,
+        "admission_capacity_provenance": "CONSERVATIVE_POLICY",
+        "admission_measurement": "UTF8_ESTIMATE",
+        "request_replay_allowed": false,
+        "incident_origin": "APPLICATION",
+        "admission_configured_context_tokens": 4096,
+        "derived_budget": {
+          "formula": "prompt + uncertainty safety + reserved tool results + output",
+          "input_with_safety_and_tool_reserve": 4176,
+          "total_reserved_tokens": 4944,
+          "capacity_tokens": 4096,
+          "over_by_tokens": 848,
+          "remaining_output_headroom": -80
+        }
+      },
+      "finding": "Application-side planning correctly stopped an undispatched GROQ request: 4944 total reserved tokens exceeds 4096 by 848. The tool-result reserve is separate from the reported safety amount. The 4096 value is a conservative planning allowance for unverified route capacity, not a measured provider model limit or proof of a user-selected cap.",
+      "current_code_path": [
+        "ReplayAllowance.conservativeToolPlanningBudget: conservative 4096 / output 768 only for unknown capacity and required tool evidence.",
+        "ContextBudgetService.plan: current/system/required input, reserve and safety are charged before dispatch; explicit output is not silently discarded.",
+        "RequestCapacityException.capacityGuidance: distinguishes zero input headroom from output-only mismatch; RequestAdmission enforces the final prepared-request invariant."
+      ],
+      "action_taken": "Verified every reported component and its arithmetic, traced current admission and recovery guidance, bound the current unchanged guard sources to existing Android test receipts, and ran four focused current-source RequestAdmission guard cases. No app admission defect reproduced; retain the guard and document this report individually. Posted the individual evidence-backed disposition, closed the report under explicit action-taken authorization, and verified the exact comment, unchanged approved payload, closed state and completed reason.",
+      "recovery": "Explicitly reduce required input/instructions/optional tool scope or use a larger verified route; input plus safety and reserved results already exceeds capacity, so lowering output alone is insufficient.",
+      "recommended_disposition": "close_after_documented_protective_guard_analysis",
+      "code_change_needed": false,
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetService.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/CapacityAdmissionEvidence.kt"
+      ],
+      "source_line_evidence": [
+        "ContextBudgetService.kt:102-149",
+        "ReplayAllowance.kt:15-18",
+        "RequestAdmission.kt:112-125",
+        "RequestCapacityException.kt:58-72",
+        "CapacityAdmissionEvidence.kt:24-43",
+        "ProviderRouteCapacity.kt:47-69"
+      ],
+      "existing_android_classes": [
+        "dev.chungjungsoo.gptmobile.data.context.ContextBudgetServiceTest",
+        "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest"
+      ],
+      "limits": [
+        "Counts are UTF8_ESTIMATE values, not serving-tokenizer measurements.",
+        "Raw request, schemas, route catalog observation and subsequent replan outcome are absent; no lost request content or successful recovery is claimed.",
+        "Nearby DNS/tool/Combined events are contextual logs, not causal proof for this run. Distinct run hashes remain separate reports."
+      ],
+      "external_action": {
+        "status": "verified_closed",
+        "comment_id": 7234661431,
+        "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2813#issuecomment-7234661431",
+        "closed_at": "2026-11-28T05:25:35Z",
+        "readback_state": "closed",
+        "readback_state_reason": "completed",
+        "comment_readback_verified": true,
+        "approved_payload_readback_match": true
+      }
+    },
+    {
+      "issue": 2822,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2822",
+      "evidence": {
+        "report_id": "d71c0277-b675-4a92-921c-4517fc84b091",
+        "approved_payload_sha256": "79d68172f58fcbb4a24ac6ee870d05ea92d455acd26b707894f958199b5c384b",
+        "approved_payload_digest_verified": true,
+        "captured_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "occurred_at_millis": 1795841371377,
+        "time_utc": "2026-11-28T04:49:31.377000+00:00",
+        "error_code": "CONTEXT_CAPACITY_EXCEEDED",
+        "provider": "OPENAI",
+        "run_id_hash": "ffd2c63bbc84d322bd619bf5326ff8bb00ecbbdd789d8dd0e5eb349508395943",
+        "stage": "provider_admission",
+        "dispatched": false,
+        "retryable": false,
+        "recoveryAction": "REPLAN_REQUEST_BUDGET",
+        "admission_prompt_tokens": 2836,
+        "admission_system_tokens": 1811,
+        "admission_current_request_tokens": 1025,
+        "admission_safety_tokens": 837,
+        "admission_tool_result_reserve_tokens": 512,
+        "admission_output_tokens": 768,
+        "admission_capacity_tokens": 4096,
+        "admission_capacity_provenance": "CONSERVATIVE_POLICY",
+        "admission_measurement": "UTF8_ESTIMATE",
+        "request_replay_allowed": false,
+        "incident_origin": "APPLICATION",
+        "admission_configured_context_tokens": 4096,
+        "derived_budget": {
+          "formula": "prompt + uncertainty safety + reserved tool results + output",
+          "input_with_safety_and_tool_reserve": 4185,
+          "total_reserved_tokens": 4953,
+          "capacity_tokens": 4096,
+          "over_by_tokens": 857,
+          "remaining_output_headroom": -89
+        }
+      },
+      "finding": "Application-side planning correctly stopped an undispatched OPENAI request: 4953 total reserved tokens exceeds 4096 by 857. The tool-result reserve is separate from the reported safety amount. The 4096 value is a conservative planning allowance for unverified route capacity, not a measured provider model limit or proof of a user-selected cap.",
+      "current_code_path": [
+        "ReplayAllowance.conservativeToolPlanningBudget: conservative 4096 / output 768 only for unknown capacity and required tool evidence.",
+        "ContextBudgetService.plan: current/system/required input, reserve and safety are charged before dispatch; explicit output is not silently discarded.",
+        "RequestCapacityException.capacityGuidance: distinguishes zero input headroom from output-only mismatch; RequestAdmission enforces the final prepared-request invariant."
+      ],
+      "action_taken": "Verified every reported component and its arithmetic, traced current admission and recovery guidance, bound the current unchanged guard sources to existing Android test receipts, and ran four focused current-source RequestAdmission guard cases. No app admission defect reproduced; retain the guard and document this report individually. Posted the individual evidence-backed disposition, closed the report under explicit action-taken authorization, and verified the exact comment, unchanged approved payload, closed state and completed reason.",
+      "recovery": "Explicitly reduce required input/instructions/optional tool scope or use a larger verified route; input plus safety and reserved results already exceeds capacity, so lowering output alone is insufficient.",
+      "recommended_disposition": "close_after_documented_protective_guard_analysis",
+      "code_change_needed": false,
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetService.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/CapacityAdmissionEvidence.kt"
+      ],
+      "source_line_evidence": [
+        "ContextBudgetService.kt:102-149",
+        "ReplayAllowance.kt:15-18",
+        "RequestAdmission.kt:112-125",
+        "RequestCapacityException.kt:58-72",
+        "CapacityAdmissionEvidence.kt:24-43",
+        "ProviderRouteCapacity.kt:47-69"
+      ],
+      "existing_android_classes": [
+        "dev.chungjungsoo.gptmobile.data.context.ContextBudgetServiceTest",
+        "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest"
+      ],
+      "limits": [
+        "Counts are UTF8_ESTIMATE values, not serving-tokenizer measurements.",
+        "Raw request, schemas, route catalog observation and subsequent replan outcome are absent; no lost request content or successful recovery is claimed.",
+        "Nearby DNS/tool/Combined events are contextual logs, not causal proof for this run. Distinct run hashes remain separate reports."
+      ],
+      "external_action": {
+        "status": "verified_closed",
+        "comment_id": 7234662020,
+        "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2822#issuecomment-7234662020",
+        "closed_at": "2026-11-28T05:25:38Z",
+        "readback_state": "closed",
+        "readback_state_reason": "completed",
+        "comment_readback_verified": true,
+        "approved_payload_readback_match": true
+      }
+    },
+    {
+      "issue": 2823,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2823",
+      "evidence": {
+        "report_id": "e57058e0-ec37-40a2-b558-9022df6ea33a",
+        "approved_payload_sha256": "09088392d9b8966a546a12f9953a29721c5a831b54a7d062273f07ccba447061",
+        "approved_payload_digest_verified": true,
+        "captured_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "occurred_at_millis": 1795841371385,
+        "time_utc": "2026-11-28T04:49:31.385000+00:00",
+        "error_code": "CONTEXT_CAPACITY_EXCEEDED",
+        "provider": "NVIDIA",
+        "run_id_hash": "e96faa808a7c1762d179d5d2e64f1715297419cde7675c183a2290dd6a66702f",
+        "stage": "provider_admission",
+        "dispatched": false,
+        "retryable": false,
+        "recoveryAction": "REPLAN_REQUEST_BUDGET",
+        "admission_prompt_tokens": 2834,
+        "admission_system_tokens": 1809,
+        "admission_current_request_tokens": 1025,
+        "admission_safety_tokens": 836,
+        "admission_tool_result_reserve_tokens": 512,
+        "admission_output_tokens": 768,
+        "admission_capacity_tokens": 4096,
+        "admission_capacity_provenance": "CONSERVATIVE_POLICY",
+        "admission_measurement": "UTF8_ESTIMATE",
+        "request_replay_allowed": false,
+        "incident_origin": "APPLICATION",
+        "admission_configured_context_tokens": 4096,
+        "derived_budget": {
+          "formula": "prompt + uncertainty safety + reserved tool results + output",
+          "input_with_safety_and_tool_reserve": 4182,
+          "total_reserved_tokens": 4950,
+          "capacity_tokens": 4096,
+          "over_by_tokens": 854,
+          "remaining_output_headroom": -86
+        }
+      },
+      "finding": "Application-side planning correctly stopped an undispatched NVIDIA request: 4950 total reserved tokens exceeds 4096 by 854. The tool-result reserve is separate from the reported safety amount. The 4096 value is a conservative planning allowance for unverified route capacity, not a measured provider model limit or proof of a user-selected cap.",
+      "current_code_path": [
+        "ReplayAllowance.conservativeToolPlanningBudget: conservative 4096 / output 768 only for unknown capacity and required tool evidence.",
+        "ContextBudgetService.plan: current/system/required input, reserve and safety are charged before dispatch; explicit output is not silently discarded.",
+        "RequestCapacityException.capacityGuidance: distinguishes zero input headroom from output-only mismatch; RequestAdmission enforces the final prepared-request invariant."
+      ],
+      "action_taken": "Verified every reported component and its arithmetic, traced current admission and recovery guidance, bound the current unchanged guard sources to existing Android test receipts, and ran four focused current-source RequestAdmission guard cases. No app admission defect reproduced; retain the guard and document this report individually. Posted the individual evidence-backed disposition, closed the report under explicit action-taken authorization, and verified the exact comment, unchanged approved payload, closed state and completed reason.",
+      "recovery": "Explicitly reduce required input/instructions/optional tool scope or use a larger verified route; input plus safety and reserved results already exceeds capacity, so lowering output alone is insufficient.",
+      "recommended_disposition": "close_after_documented_protective_guard_analysis",
+      "code_change_needed": false,
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetService.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/CapacityAdmissionEvidence.kt"
+      ],
+      "source_line_evidence": [
+        "ContextBudgetService.kt:102-149",
+        "ReplayAllowance.kt:15-18",
+        "RequestAdmission.kt:112-125",
+        "RequestCapacityException.kt:58-72",
+        "CapacityAdmissionEvidence.kt:24-43",
+        "ProviderRouteCapacity.kt:47-69"
+      ],
+      "existing_android_classes": [
+        "dev.chungjungsoo.gptmobile.data.context.ContextBudgetServiceTest",
+        "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest"
+      ],
+      "limits": [
+        "Counts are UTF8_ESTIMATE values, not serving-tokenizer measurements.",
+        "Raw request, schemas, route catalog observation and subsequent replan outcome are absent; no lost request content or successful recovery is claimed.",
+        "Nearby DNS/tool/Combined events are contextual logs, not causal proof for this run. Distinct run hashes remain separate reports."
+      ],
+      "external_action": {
+        "status": "verified_closed",
+        "comment_id": 7234662611,
+        "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2823#issuecomment-7234662611",
+        "closed_at": "2026-11-28T05:25:42Z",
+        "readback_state": "closed",
+        "readback_state_reason": "completed",
+        "comment_readback_verified": true,
+        "approved_payload_readback_match": true
+      }
+    },
+    {
+      "issue": 2824,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2824",
+      "evidence": {
+        "report_id": "a2a354a3-2ace-46f3-8ccd-fa5e1d5256db",
+        "approved_payload_sha256": "e6ca2cf3bf67f96792cdf0916e8fdb3b8d8c0cc9720aaf68fffa426e65af3680",
+        "approved_payload_digest_verified": true,
+        "captured_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "occurred_at_millis": 1795841371428,
+        "time_utc": "2026-11-28T04:49:31.428000+00:00",
+        "error_code": "CONTEXT_CAPACITY_EXCEEDED",
+        "provider": "CUSTOM",
+        "run_id_hash": "5ed7c7e3e615e3d752c2733737c4445b32b25e9582b9b1f5490775c759a5724e",
+        "stage": "provider_admission",
+        "dispatched": false,
+        "retryable": false,
+        "recoveryAction": "REPLAN_REQUEST_BUDGET",
+        "admission_prompt_tokens": 2829,
+        "admission_system_tokens": 1804,
+        "admission_current_request_tokens": 1025,
+        "admission_safety_tokens": 835,
+        "admission_tool_result_reserve_tokens": 512,
+        "admission_output_tokens": 768,
+        "admission_capacity_tokens": 4096,
+        "admission_capacity_provenance": "CONSERVATIVE_POLICY",
+        "admission_measurement": "UTF8_ESTIMATE",
+        "request_replay_allowed": false,
+        "incident_origin": "APPLICATION",
+        "admission_configured_context_tokens": 4096,
+        "derived_budget": {
+          "formula": "prompt + uncertainty safety + reserved tool results + output",
+          "input_with_safety_and_tool_reserve": 4176,
+          "total_reserved_tokens": 4944,
+          "capacity_tokens": 4096,
+          "over_by_tokens": 848,
+          "remaining_output_headroom": -80
+        }
+      },
+      "finding": "Application-side planning correctly stopped an undispatched CUSTOM request: 4944 total reserved tokens exceeds 4096 by 848. The tool-result reserve is separate from the reported safety amount. The 4096 value is a conservative planning allowance for unverified route capacity, not a measured provider model limit or proof of a user-selected cap.",
+      "current_code_path": [
+        "ReplayAllowance.conservativeToolPlanningBudget: conservative 4096 / output 768 only for unknown capacity and required tool evidence.",
+        "ContextBudgetService.plan: current/system/required input, reserve and safety are charged before dispatch; explicit output is not silently discarded.",
+        "RequestCapacityException.capacityGuidance: distinguishes zero input headroom from output-only mismatch; RequestAdmission enforces the final prepared-request invariant."
+      ],
+      "action_taken": "Verified every reported component and its arithmetic, traced current admission and recovery guidance, bound the current unchanged guard sources to existing Android test receipts, and ran four focused current-source RequestAdmission guard cases. No app admission defect reproduced; retain the guard and document this report individually. Posted the individual evidence-backed disposition, closed the report under explicit action-taken authorization, and verified the exact comment, unchanged approved payload, closed state and completed reason.",
+      "recovery": "Explicitly reduce required input/instructions/optional tool scope or use a larger verified route; input plus safety and reserved results already exceeds capacity, so lowering output alone is insufficient.",
+      "recommended_disposition": "close_after_documented_protective_guard_analysis",
+      "code_change_needed": false,
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetService.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/CapacityAdmissionEvidence.kt"
+      ],
+      "source_line_evidence": [
+        "ContextBudgetService.kt:102-149",
+        "ReplayAllowance.kt:15-18",
+        "RequestAdmission.kt:112-125",
+        "RequestCapacityException.kt:58-72",
+        "CapacityAdmissionEvidence.kt:24-43",
+        "ProviderRouteCapacity.kt:47-69"
+      ],
+      "existing_android_classes": [
+        "dev.chungjungsoo.gptmobile.data.context.ContextBudgetServiceTest",
+        "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest"
+      ],
+      "limits": [
+        "Counts are UTF8_ESTIMATE values, not serving-tokenizer measurements.",
+        "Raw request, schemas, route catalog observation and subsequent replan outcome are absent; no lost request content or successful recovery is claimed.",
+        "Nearby DNS/tool/Combined events are contextual logs, not causal proof for this run. Distinct run hashes remain separate reports."
+      ],
+      "external_action": {
+        "status": "verified_closed",
+        "comment_id": 7234665027,
+        "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2824#issuecomment-7234665027",
+        "closed_at": "2026-11-28T05:25:56Z",
+        "readback_state": "closed",
+        "readback_state_reason": "completed",
+        "comment_readback_verified": true,
+        "approved_payload_readback_match": true
+      }
+    },
+    {
+      "issue": 2825,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2825",
+      "evidence": {
+        "report_id": "1aa191ce-dfe4-4500-9317-47c88bb04b31",
+        "approved_payload_sha256": "7b2c32d1b403762385c89ec71ef27ae63417ea7bbaabc00696d5072bafbb87e8",
+        "approved_payload_digest_verified": true,
+        "captured_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "occurred_at_millis": 1795841443365,
+        "time_utc": "2026-11-28T04:50:43.365000+00:00",
+        "error_code": "SOURCE_PAYMENT_REQUIRED",
+        "provider": "OPENAI",
+        "run_id_hash": "e8a8cc287afd207378998de6a9c1c66549d32e6a0362531ccf98cfcc1e566200",
+        "stage": "response_stream",
+        "httpStatus": 200,
+        "dispatched": true,
+        "retryable": false,
+        "remoteAcceptance": "UNKNOWN",
+        "recoveryAction": "RETRY_AFTER_CONFIGURATION_CHANGE",
+        "provider_failure_code": "BILLING_UNAVAILABLE",
+        "provider_failure_kind": "BUDGET",
+        "provider_budget_kind": "PROVIDER_QUOTA",
+        "provider_budget_retry": "AFTER_CONFIGURATION_CHANGE",
+        "upstream_error_type": "insufficient_quota",
+        "stream_event_type": "response.failed",
+        "visible_output_bytes": 0,
+        "reasoning_output_bytes": 0,
+        "generation_completed": false,
+        "transport_complete": false,
+        "request_replay_allowed": false,
+        "effective_output_limit": 5708,
+        "incident_origin": "PROVIDER",
+        "invocation_id_hash": "935c82aff41401ecb08811f0d28b0f0bb54e8b5565059126754a130307d1f5d4"
+      },
+      "finding": "Explicit insufficient_quota semantic failure inside response.failed on HTTP200. The accepted HTTP stream did not complete generation; zero visible/reasoning bytes were observed. PROVIDER_QUOTA identifies the provider API quota restriction, not a measured monetary balance.",
+      "current_code_path": [
+        "ProviderFailure.fromValues: insufficient_quota is typed PROVIDER_QUOTA/BUDGET.",
+        "ProviderStreamFailure.event: BILLING_UNAVAILABLE, false retry/replay and AFTER_CONFIGURATION_CHANGE.",
+        "KnownWriterFailures.observe/blocked: configuration-scoped quota pause with a 300000 ms local TTL; explicit recheck supported.",
+        "ChatRepositoryImpl cachedWriterFailure/quotaPause: automatic admission pauses, explicit failed-stage/writer retry can recheck."
+      ],
+      "action_taken": "Verified current semantic classification, preserved unknown acceptance and zero-output observations, no automatic replay, configuration-scoped pause and explicit recovery. Revalidated exact source binding to existing Android semantic/quota guard receipts. No account intervention or app change is supported by this report. Posted the individual evidence-backed disposition, closed the report under explicit action-taken authorization, and verified the exact comment, unchanged approved payload, closed state and completed reason.",
+      "recovery": "After the provider account/API quota or selected profile configuration is addressed by its owner, explicitly retry the saved failed stage. No reset time is known from this capture.",
+      "recommended_disposition": "close_after_documented_external_provider_constraint_analysis",
+      "code_change_needed": false,
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderBudgetEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/delegation/KnownWriterFailures.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderQuotaIncidentGrouping.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt"
+      ],
+      "source_line_evidence": [
+        "ProviderFailure.kt:54-76",
+        "ProviderStreamFailure.kt:35-103",
+        "KnownWriterFailures.kt:18-50",
+        "ChatRepositoryImpl.kt:4725-4756"
+      ],
+      "existing_android_classes": [
+        "dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailureTest",
+        "dev.chungjungsoo.gptmobile.data.delegation.WriterLoadReadinessTest",
+        "dev.chungjungsoo.gptmobile.data.diagnostics.ProviderQuotaIncidentGroupingTest"
+      ],
+      "limits": [
+        "No account, billing, quota reset deadline or current provider state was queried or modified.",
+        "The later OpenRouter unknown-completion report is not proven to be this OpenAI invocation.",
+        "A source-level recovery path is not evidence that recovery actually occurred."
+      ],
+      "external_action": {
+        "status": "verified_closed",
+        "comment_id": 7234665674,
+        "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2825#issuecomment-7234665674",
+        "closed_at": "2026-11-28T05:26:00Z",
+        "readback_state": "closed",
+        "readback_state_reason": "completed",
+        "comment_readback_verified": true,
+        "approved_payload_readback_match": true
+      }
+    },
+    {
+      "issue": 2826,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2826",
+      "evidence": {
+        "report_id": "c87fbb6f-27f5-4975-b9fd-58824805fbec",
+        "approved_payload_sha256": "49c27bcc43fd89b9549dd8ab435bd6d7e1d38e6a6a1a42f8e8e46daaea28f333",
+        "approved_payload_digest_verified": true,
+        "captured_commit": "11a1bd5a4b61011ceaa6441754797e6914dd5b58",
+        "occurred_at_millis": 1795841465421,
+        "time_utc": "2026-11-28T04:51:05.421000+00:00",
+        "error_code": "CHAT_FAILED",
+        "provider": "OPENROUTER",
+        "run_id_hash": "4a56c5c45d57cf33951fa955d3421d15097c81a38c268bf5f9330b5a3b7f8fbc",
+        "chat_failure_code_state": "UNRECOGNIZED",
+        "original_error_code_hash": "2707cca7739121b34934c4e030e0195d879eccc2cb732bb78356d93b5cf90310",
+        "exact_source_constant_match": "COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN",
+        "hash_domain": "gptmobile.issue-context.v1:chat-error-code:",
+        "hash_match_verified": true,
+        "incident_phase": "unknown",
+        "incident_origin": "UNKNOWN",
+        "failed_event_details_present": false,
+        "failed_event_invocation_present": false
+      },
+      "finding": "The original code hash exactly identifies the application-owned restored accepted-append unknown-completion guard. It correctly stops before another provider attempt or append. A reproducible reporting defect drops the local cause into generic CHAT_FAILED because the producer supplies no structured evidence and the public classifier lacks this guarded mapping.",
+      "current_code_path": [
+        "CombinedRecordRecoverySession.streamRound restored+acceptedAppend: refuse if appendReady is false or last outcome is not COMPLETED/OUTPUT_LIMIT/KNOWN_PROVIDER_REJECTION.",
+        "CombinedWriterDispatchGuard.authorizeContinuation independently requires a known completed/rejected boundary.",
+        "CombinedRecoveryFailure keeps unknown categories at STOP.",
+        "IssueReportIncidents.chatFailure previously downgraded the unrecognized internal code to CHAT_FAILED."
+      ],
+      "action_taken": "Implemented and committed f3918d0386018f78ef0965726e182dcfb4334a0e: preserve internal code, stop and cursor behavior; add owned APPLICATION/final_synthesis review/reconciliation/no-replay evidence, and map only the complete guarded tuple to existing public REMOTE_OUTCOME_UNKNOWN. Original provider dispatch, acceptance, status and invocation remain unknown. Current focused 8/8 checks passed; two new regression observations fail on e28 baseline while existing no-repeat and adverse tuple checks pass. Full Android report-publication regression is committed for hosted CI.",
+      "recovery": "Review the saved recovery/checkpoint and resolve the prior uncertain attempt before starting more work; this patch does not authorize replay, synthesize remote completion or overwrite the saved cursor.",
+      "recommended_disposition": "close_after_narrow_diagnostic_fix_is_published",
+      "code_change_needed": true,
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordRecoverySession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedWriterRequestPlan.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecoveryFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt"
+      ],
+      "source_line_evidence": [
+        "CombinedRecordRecoverySession.kt:30-44 (pre-fix)",
+        "CombinedWriterRequestPlan.kt:195-199",
+        "CombinedRecoveryFailure.kt:69-112",
+        "IssueReportContext.kt:364-375",
+        "IssueReportIncidents.kt:359-366,491-507 (pre-fix)"
+      ],
+      "existing_android_classes": [
+        "dev.chungjungsoo.gptmobile.data.agent.CombinedAppendRecoverySessionTest"
+      ],
+      "limits": [
+        "The captured report does not retain the actual saved checkpoint, prior invocation or remote result.",
+        "Hash equality establishes the emitted application constant; it cannot establish why the prior attempt became unknown.",
+        "Public diagnostic correction does not resolve the original remote outcome or establish successful recovery.",
+        "Full Android/Robolectric report-publication regression remains a hosted gate; local qualification is scoped explicitly."
+      ],
+      "repair_commit": "f3918d0386018f78ef0965726e182dcfb4334a0e"
+    }
+  ],
+  "repair_2826": {
+    "commit": "f3918d0386018f78ef0965726e182dcfb4334a0e",
+    "base": "74ba873cad202e7a99d5fa0681fc75a75b334614",
+    "branch": "repair/combined-unknown-report-e28",
+    "files": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordRecoverySession.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAppendRecoverySessionTest.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt"
+    ],
+    "file_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordRecoverySession.kt": "223c577973a2c1ab1af9f05293ce116e8d9b74ab7681c6ed3bbb60848434f959",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt": "20d6e4c4cebc7f2bcbfe049cb72edcb4e6171c529508012364c9ace21fba7fad",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAppendRecoverySessionTest.kt": "9acc67c190ad27ecf2f7a1c3c3f08c5ea6d498904324ee3533dd8d7e0470eab3",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt": "302ee8724d21fd7b19c6091d0d19c5f7a03ca797b67ed4fecca23f93140b1053"
+    },
+    "behavior": "The accepted-append predicate, internal failure code, unchanged saved cursor, return-before-dispatch and no-repeat behavior are retained. Only typed source evidence and public diagnostic mapping change.",
+    "validation": {
+      "focused_cases": 8,
+      "current_failures": 0,
+      "baseline_cases": 8,
+      "baseline_failures": 2,
+      "baseline_failures_expected": [
+        "missing structured producer evidence",
+        "generic CHAT_FAILED instead of owned unknown-outcome review classification"
+      ],
+      "assertions_enabled": true,
+      "ktlint_files": 4,
+      "ktlint_exit": 0,
+      "git_diff_check_exit": 0,
+      "independent_review": "tool_admission_audit: no blocking findings",
+      "current_manifest": "/workspace/scratch/49479c165f4e/provider-2826-host/current/qualification.json",
+      "baseline_manifest": "/workspace/scratch/49479c165f4e/provider-2826-host/baseline/qualification.json",
+      "android_publication_regression_executed_locally": false
+    },
+    "android_regression_classes": [
+      "dev.chungjungsoo.gptmobile.data.agent.CombinedAppendRecoverySessionTest",
+      "dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentsTest"
+    ],
+    "publication_owner": "/root",
+    "published_by_this_agent": false
+  },
+  "external_mutation_scope": [
+    2800,
+    2801,
+    2802,
+    2812,
+    2813,
+    2822,
+    2823,
+    2824,
+    2825
+  ],
+  "closure_ledger_path": "/workspace/scratch/49479c165f4e/new-issues-2794-2827-provider-closures.json",
+  "provider_profile_or_account_mutations_performed": false
+}

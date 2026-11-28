@@ -3,6 +3,13 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
+import dev.chungjungsoo.gptmobile.data.agent.CombinedRecordCheckpoint
+import dev.chungjungsoo.gptmobile.data.agent.CombinedRecordProtocol
+import dev.chungjungsoo.gptmobile.data.agent.CombinedRecordRecoverySession
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure
 import dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive
 import dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager
@@ -13,6 +20,8 @@ import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure
 import io.ktor.http.headersOf
 import java.io.File
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -34,6 +43,64 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class IssueReportIncidentsTest {
+    @Test fun applicationOwnedAppendUncertaintyKeepsItsReviewEvidenceAndUnknownTransport() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val checkpoint = CombinedRecordCheckpoint(snapshotDigest = "private-snapshot", revisionId = "private-revision", lastAttemptOutcome = "UNKNOWN")
+        val forbidden = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> { error("Unknown completion must not dispatch") }
+        }
+        val session = CombinedRecordRecoverySession(
+            forbidden,
+            CombinedRecordProtocol(checkpoint, emptySet(), emptySet(), emptySet(), 10_000),
+            1,
+            restored = true,
+            acceptedAppend = true,
+            validateAccess = {},
+            save = { error("The guard must retain the saved cursor unchanged") }
+        ) { _, _ -> error("Unknown completion must not append") }
+        val failure = session.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        IssueReportIncidents.chatFailure(failure.errorCode, false, null, failure.failureDetails.orEmpty() + mapOf("provider" to "OPENROUTER", "run_id" to "private-run"))
+        val report = IssueReportIncidents.pending.value.single()
+        val context = requireNotNull(report.context)
+        val diagnostics = requireNotNull(context.diagnostics)
+        assertEquals("REMOTE_OUTCOME_UNKNOWN", report.errorCode)
+        assertEquals("final_synthesis", context.stage)
+        assertEquals("REVIEW_SAVED_RECOVERY", context.recoveryAction)
+        assertEquals(true, context.requiresReconciliation)
+        assertEquals(false, context.retryable)
+        assertEquals(false, context.resumeAllowed)
+        assertEquals("INCIDENT", diagnostics.area)
+        assertEquals(JsonPrimitive("APPLICATION"), diagnostics.values["incident_origin"])
+        assertEquals(JsonPrimitive("TYPED_EVIDENCE"), diagnostics.values["incident_evidence_status"])
+        assertEquals(JsonPrimitive("EXPLICIT_CAUSE"), diagnostics.values["causal_provenance"])
+        assertEquals(JsonPrimitive(IssueReportContext.identifierHash("incident-cause:EXPLICIT_CAUSE", "private-snapshot:private-revision:0")), diagnostics.values["causal_id_hash"])
+        assertEquals(JsonPrimitive(IssueReportContext.identifierHash("chat-error-code", failure.errorCode)), diagnostics.values["original_error_code_hash"])
+        assertNull(context.dispatched)
+        assertNull(context.remoteAcceptance)
+        assertNull(context.httpStatus)
+        assertNull(context.invocationIdHash)
+        assertTrue(context.unavailableFields.containsAll(listOf("dispatched", "remoteAcceptance", "httpStatus", "invocationIdHash")))
+        assertTrue(IssueReportContext.validDiagnosticsIn(IssueReport.json.encodeToJsonElement(IssueReportContext.serializer(), context)))
+        assertFalse(report.approvedPayload().contains("private-"))
+    }
+
+    @Test fun anUnownedAppendCodeCannotInventTheApplicationReviewClassification() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf(
+            "failed_stage" to "final_synthesis",
+            "failure_origin" to "APPLICATION",
+            "requires_reconciliation" to true,
+            "retryable" to false,
+            "resume_allowed" to false,
+            "request_replay_allowed" to false,
+            "recovery_action" to "REVIEW_SAVED_RECOVERY"
+        )
+        for ((index, incomplete) in listOf(emptyMap(), fields - "failure_origin", fields + ("failure_origin" to "PROVIDER"), fields + ("retryable" to true), fields + ("requires_reconciliation" to false)).withIndex()) {
+            IssueReportIncidents.chatFailure("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN", false, null, incomplete + ("run_id" to "incomplete-$index"))
+            assertEquals("CHAT_FAILED", IssueReportIncidents.pending.value.last().errorCode)
+        }
+    }
+
     @Test fun groupedQuotaReportsKeepImmutableApprovalSnapshotsAndLaterOccurrences() = runBlocking {
         LocalDiagnosticsPolicy.setEnabled(true)
         val fields = mapOf(

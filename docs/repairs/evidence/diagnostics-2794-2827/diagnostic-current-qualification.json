@@ -1,0 +1,145 @@
+{
+  "source_revision": "f3918d0386018f78ef0965726e182dcfb4334a0e",
+  "baseline": false,
+  "hashes": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentContracts.kt": {
+      "sha256": "408e331d5f7384f54a636e0ef812fc60c9a7c70879b2c4dee930c3673b3feff2",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ResolvedRequestLimits.kt": {
+      "sha256": "f50f74763a0ce58681de479225319aa1d962a8ef8f214439fbe2654026d28ff2",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CapacityAdmissionObservation.kt": {
+      "sha256": "51eea57a0eab17ad16dc7f718e0268d7fcff4a02e0dcc140ca868a128343d160",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/PromptBudgetReceipt.kt": {
+      "sha256": "58ca6972ba0cfebc0e063ec8a8afc439d99bacf18ee78ba52c9ea7cc8b3b1356",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestDeadlineReceipt.kt": {
+      "sha256": "a3d3ffb1a3084318dba8b85b4f61f72f73625650d1eea22cfa18696a14226d1a",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReasoningPolicy.kt": {
+      "sha256": "c71f55d9831d60c0a7ca89c44d3f4d5cbd950d26125ccccbbe4ec0249c1dfc17",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderRecoveryFailure.kt": {
+      "sha256": "cb56393312b97965d50c3736c01ec5b261410faa89e5ba7cbfcbbea8f55c3787",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayInputRejectionDetails.kt": {
+      "sha256": "1291c81dc88f155e446ae31ede3f30b55292c4b138d174834610f2d5257f0286",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubOperationFamily.kt": {
+      "sha256": "55375edb50971e6713aab7d6b8c17c3a3ff5bb3505d5403d938a0e310f4d3525",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordRecoverySession.kt": {
+      "sha256": "223c577973a2c1ab1af9f05293ce116e8d9b74ab7681c6ed3bbb60848434f959",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordProtocol.kt": {
+      "sha256": "b81bdab9f8219610097ad80d6a0e910fd55073e16f32fc145a2e682a2dd66ec6",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt": {
+      "sha256": "a7a58100d4587b6b58ed9bba873a52712d80bf2078116c1e399899f3ed1735c9",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt": {
+      "sha256": "fcd2ff596c27ae09909013fd3e88c7a199d9bfaa2d6fae15f1ff73efd7a85859",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt": {
+      "sha256": "af82dafa368f2abd300e20ed9f4534fcb6cd12ab8c72fb5313757a0033965113",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt": {
+      "sha256": "710d6e956a4d5b0c8880a76964cc6a5089fee23eb4f35c8a27d05dc3cb90eebd",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayOutcomeRecovery.kt": {
+      "sha256": "52fca375ca48a6ac82581b6611770160cd1753d9cfd6217dcefdf9553115f5a6",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAnswerPolicy.kt": {
+      "sha256": "b972ada9441012e6c9d114dd78f5cf6a765224603cb0a72f8aabb450b92cb198",
+      "source": "worktree"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordContinuationInput.kt": {
+      "sha256": "67750e95400e58a6bf1019d0be2a949882f990db06dc64e3ba13e02318d204ad",
+      "source": "worktree"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAppendRecoverySessionTest.kt": {
+      "sha256": "9acc67c190ad27ecf2f7a1c3c3f08c5ea6d498904324ee3533dd8d7e0470eab3",
+      "source": "worktree test"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmissionTest.kt": {
+      "sha256": "ac01a633a568f1fd1e3309f5d5447a0b4610c7b936c6ae78eb3600c7aaa81a2f",
+      "source": "worktree test"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt": {
+      "sha256": "20d6e4c4cebc7f2bcbfe049cb72edcb4e6171c529508012364c9ace21fba7fad",
+      "source": "worktree"
+    }
+  },
+  "selected": [
+    [
+      "dev.chungjungsoo.gptmobile.data.agent.CombinedAppendRecoverySessionTest",
+      "crashOrUncertainTransportNeverGrantsPermissionToRepeat"
+    ],
+    [
+      "dev.chungjungsoo.gptmobile.data.agent.CombinedAppendRecoverySessionTest",
+      "unknownCompletionKeepsApplicationReviewEvidenceWithoutInventingAProviderReceipt"
+    ],
+    [
+      "dev.chungjungsoo.gptmobile.data.diagnostics.ProjectionHostTest",
+      "actualGuardMapsToExistingReviewCodeAndKeepsUnknownReceiptFields"
+    ],
+    [
+      "dev.chungjungsoo.gptmobile.data.diagnostics.ProjectionHostTest",
+      "incompleteOrProviderOwnedTuplesCannotAcquireApplicationClassification"
+    ],
+    [
+      "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest",
+      "auxiliaryUnknownCapacityUsesAnExplicitConservativeCeiling"
+    ],
+    [
+      "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest",
+      "ix01ZeroMeansNoExtraCapAndDefaultsKeepTheirProvenance"
+    ],
+    [
+      "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest",
+      "lcT01BoundaryPassesOneTokenOverflowBlocksAndWireCannotChange"
+    ],
+    [
+      "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest",
+      "lcT02OverflowAndUnknownCapacityCannotBecomeSuccessfulBudgetChecks"
+    ]
+  ],
+  "compile_exit": 0,
+  "assertions_enabled": true,
+  "scope": "Full exact CombinedRecordRecoverySession and CombinedRecordProtocol restored-cursor guards, exact full IssueReportIncidents.chatFailure method, full IssueReportContext and RequestAdmission sources. Two exact checked-in append test bodies and their original fixtures extracted; the full RequestAdmissionTest class compiled with four methods selected; two additional report-boundary probes. Android report persistence/capsule publication is an explicit sink; its checked-in Robolectric regression is not executed here. No transport attempt, billing account, model or device execution.",
+  "ports": "Existing hash-bound provider event/session DTOs; answer-policy parsing and physical usage stream fail loudly if reached; instrumentation trace is a passthrough; final report store and optional incident sensor are explicit ports. Llama props discovery, unrelated GitHub/privacy code-family classification and complete Android incident publication are excluded. Boundary reuse hashes are pinned below.",
+  "boundary_jars_sha256": {
+    "/workspace/scratch/49479c165f4e/recovery-host-tests/tests.jar": "714039044421893bb866c13e9a8b429db735e6a496fdf8f13aa894863b3bb319"
+  },
+  "claim_boundary_classes_sha256": "76d8669e919503d620853b40349ea2e65d6aac698e7f402f8c4b6d4ad277164a",
+  "test_exit": 0,
+  "generated_sha256": {
+    "ProtocolPorts.kt": "e63d96e88dcbc3a3b302aab1d5781ac0d742fda6162d6c5e9b47205692234e59",
+    "TracePort.kt": "1c73f1d028fbefe17f9dd633281080c423782181a7b0779c35b87d096c88c3dd",
+    "ProtocolImports.kt": "4eb1e09cc181691372e35ebf1afdf818287e4ee49ed163534e824b7ab8e2263e",
+    "OutputLimitPort.kt": "1caf164d7106347c7475258936f87d3da104fc9845646958e775cdd82c732648",
+    "NetworkPort.kt": "e31c9fb24c05221c23e16bd8e3b29147315585fb1a4649b42d281da264e54bc0",
+    "LlamaCapacityPort.kt": "8f62a9e5bbd92eac72bc2367aa9d0117715517f54a4399b8d32f2d17d70f4984",
+    "ChatFailureBoundary.kt": "20f7c000806694a1a361cacf16d7c9290485065e33e0a266650b23d0d2bf2c02",
+    "GithubPorts.kt": "8ce3f6f462b06d59c2f06bd03c85c88c46b67d49bdbb4843daec88f92a4cbeab",
+    "ProjectionHostTest.kt": "2454d2df2005d8e1a9dbfe6a73b038b649fffa504c181e2f3418d27bcff4582a",
+    "Runner.kt": "ff3c04abdcc80e66571ed0efdbc91fbad333efbe9d1fd4660ed29589f0c4e069"
+  }
+}

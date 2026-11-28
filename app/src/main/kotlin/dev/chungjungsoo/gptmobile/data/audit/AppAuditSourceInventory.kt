@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "49f287092e01f13391a1d886e7d30ee5b83b03a5091a4ddb28861faa6de8d6ec"
+    val sourceDigest: String = "93e5051fe5bba60a29c3d36f72ef4a48879b2c6dc1f8ef0076317a50a8a59721"
     val fileCount: Int = 3282
-    val lineCount: Int = 565071
+    val lineCount: Int = 565105
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -27,7 +27,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 76, 8932),
         AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 626, 110677),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 202, 9309),
-        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 274, 49847),
+        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 274, 49867),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 104, 24901),
         AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 31, 4881),
         AppAuditSourceArea("marketplace_plugins", "Plugin marketplace", 13, 1733),
@@ -40,7 +40,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("research", "Research and source acquisition", 115, 14220),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 47, 5095),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 111, 15317),
-        AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 110, 17715),
+        AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 110, 17729),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 158, 26191),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 56, 8339),
         AppAuditSourceArea("voice_and_media", "Voice and media", 179, 30815),

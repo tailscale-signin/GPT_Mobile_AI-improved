@@ -17,6 +17,8 @@ This version pair supersedes Android 0.9.66.18 (build 152) and Gateway 18.1.5 fo
 
 ## Changes
 
+- Preserve application-owned unknown Combined append recovery causes in public diagnostics, retaining saved-cursor review requirements and preventing uncertain request replay.
+
 - Voice Mode shows a neutral microphone while idle, a fading theme highlight while listening, and a steady highlighted Stop while generating or speaking. The same states appear in the transcript view and respect reduced-motion settings.
 - A new voice chat begins listening once its profile, audio and microphone permission are ready. Completed spoken replies return to listening with one microphone cue; Stop, errors and leaving the foreground cancel that continuation. Button sounds default on for new settings while saved off choices remain off.
 
@@ -149,3 +151,7 @@ Published tags remain immutable, and a passing earlier revision does not qualify
 - The Standard nine-category benchmark uses original synthetic reasoning and offline engineering fixtures. It is not an official SWE-bench score or proof of live production performance; missing evidence prevents a comparable overall score.
 - Theme variants, process-death recovery, predictive-back dismissal, 24-hour choices, physical handset performance targets and final installed Windows-to-phone synchronization still need device qualification. No improvement percentage is claimed from source changes.
 - Gateway synchronization transfers bounded structural source identities and lexical candidates. A completed transfer can still have partial source coverage; cached schemas and historical research never grant current execution authority.
+
+### Diagnostic follow-up qualification
+
+Reports #2794–#2827 were individually actioned under the requested closure rule. Guard validation and diagnostic repair do not establish recovery of external DNS, unavailable content, provider quota or intentionally disabled profile tools; retained Android receipts remain baseline evidence.

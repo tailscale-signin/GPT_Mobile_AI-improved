@@ -1,0 +1,449 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "authorized_issue_numbers": [
+    2806,
+    2807,
+    2808,
+    2809,
+    2810,
+    2811,
+    2818,
+    2819,
+    2820,
+    2821,
+    2827
+  ],
+  "authorization": "User requested issue closure after an action; parent delegated only these eleven after individual review and six current-source behavior cases passed.",
+  "published_source_sha": "74ba873cad202e7a99d5fa0681fc75a75b334614",
+  "assessment_file": "new-issues-2794-2827-combined-assessment.json",
+  "source_binding_verified": true,
+  "validation": {
+    "cases": 6,
+    "passed": 6,
+    "qualification": "combined-report-host-tests/qualification.json",
+    "source_manifest": "combined-report-host-tests/source-manifest.json"
+  },
+  "issues": [
+    {
+      "issue_number": 2806,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2806",
+      "report_id": "aa84a7d7-d85c-40b8-a4c6-81ac14d7f2d0",
+      "approved_payload_sha256": "a25555d46355cd9b5913f796cf41c3b51db1db5d77275466013bb25faa48795f",
+      "refreshed_payload_matches_audited": true,
+      "refreshed_state": "open",
+      "refreshed_updated_at": "2026-11-28T04:49:41Z",
+      "refreshed_comment_count": 0,
+      "refreshed_at": "2026-11-28T05:15:24.897Z",
+      "status": "closed_verified",
+      "prepared_comment": "### Action completed: individual budget-guard review and qualification\n\nReviewed report `aa84a7d7-d85c-40b8-a4c6-81ac14d7f2d0` (2026-11-28T04:49:30.530Z, app build 153) and verified its approved-payload SHA-256. The report was refreshed before this closure.\n\n**Finding:** this distinct `read_url` call was rejected at `tool_precheck` with `dispatched=false` and `COMBINED_BUDGET_EXHAUSTED`. [The shared admission guard](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt#L372-L409) reserves Combined work before invoking the physical tool. A denial leaves the read unexecuted and [finishes from retained evidence](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt#L2146-L2181). This call shares its run hash with #2810, but has a distinct call ID; this does not establish repeated physical execution.\n\n**Validation action:** compiled the actual Combined budget/store/policy sources and ran six existing focused behavior cases, **6/6 passed**: atomic shared ceiling, unknown-reservation preservation, progress-bound renewal, protected finalization funding, consumed single-pass/new-revision recovery, and confirmed pre-dispatch retry. Their source hashes were rechecked against published commit `74ba873cad202e7a99d5fa0681fc75a75b334614` in #2651. This is host guard qualification, not Android device or live-URL execution.\n\n**Recovery:** keep completed evidence and identify unread scope. Review the accepted plan and remaining work; if further reading is required, accept a new bounded request with an appropriate allowance or narrower scope. Renewal must retain its accepted finite-work/progress rules and hard limits. No budget or settings were changed.\n\nThis capsule omits the numeric allowance, denial subtype, and accepted plan, so it cannot establish which resource or admission rule stopped the call, or whether the original plan was sized appropriately. Nearby errors are not causally joined to this call. Recovery remains `UNOBSERVED`.\n\nClosing after the requested investigation and validation action. No new code fix, successful URL read, or live recovery is claimed.\n\n<!-- combined-diagnostic-audit-2794-2827:2806 -->",
+      "comment_id": 7234557352,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2806#issuecomment-7234557352",
+      "closure_update": {
+        "at": "2026-11-28T05:16:15.892Z",
+        "result": {
+          "issue": {
+            "id": 6659334907,
+            "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2806",
+            "title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED",
+            "issue_number": 2806,
+            "body": "### Approved app report\n\n    {\"reportId\":\"aa84a7d7-d85c-40b8-a4c6-81ac14d7f2d0\",\"source\":\"debug\",\"version\":\"0.9.66.19\",\"build\":153,\"commit\":\"11a1bd5a4b61011ceaa6441754797e6914dd5b58\",\"android\":\"16\",\"sdk\":36,\"device\":\"asus ASUSAI2501C\",\"feature\":\"tools\",\"errorCode\":\"COMBINED_BUDGET_EXHAUSTED\",\"events\":[\"-3492ms E chat TOOL_UNAVAILABLE\",\"-141ms I tools\",\"-133ms I tools\",\"-130ms I tools\",\"-128ms I tools\",\"-127ms I tools\",\"-119ms I tools\",\"-111ms I tools\",\"-111ms I tools\",\"-109ms I tools\",\"-95ms I tools\",\"-93ms I tools\",\"-90ms I tools\",\"-84ms I tools\",\"-76ms I tools\",\"-0ms E tools COMBINED_BUDGET_EXHAUSTED\"],\"context\":{\"schemaVersion\":7,\"occurredAtMillis\":1795841370530,\"source\":\"TOOL_RESULT\",\"unavailableFields\":[\"provider\",\"httpStatus\",\"retryAfterMillis\",\"retryable\",\"resumeAllowed\",\"requiresReconciliation\",\"remoteAcceptance\",\"jobState\",\"recoveryAction\",\"missingFields\",\"invalidFields\",\"invocationIdHash\",\"jobIdHash\",\"activeJobIdHash\",\"exceptionFingerprint\",\"requiredCriteria\",\"verifiedCriteria\",\"remainingCriteria\",\"originalFailureCode\",\"originalHttpStatus\",\"checkpointBindingHash\",\"checkpointDigestHash\",\"resumeClaimIdHash\",\"ownershipFence\"],\"stage\":\"tool_precheck\",\"operation\":\"read_url\",\"dispatched\":false,\"reasonCode\":\"COMBINED_BUDGET_EXHAUSTED\",\"runIdHash\":\"6ce75a3437652a488cb2fb2179ee78e7b04084bdde36c66a5ff2c48e45154e0b\",\"callIdHash\":\"7a612716dfbabf00912d42e57143e555a8368d3a0ad1de3ec4622dedb7d5392c\",\"diagnostics\":{\"schemaVersion\":3,\"area\":\"TOOL\",\"capturedAtMillis\":1795841370530,\"captureMode\":\"INCIDENT\",\"values\":{\"run_id_hash\":\"6ce75a3437652a488cb2fb2179ee78e7b04084bdde36c66a5ff2c48e45154e0b\",\"call_id_hash\":\"7a612716dfbabf00912d42e57143e555a8368d3a0ad1de3ec4622dedb7d5392c\",\"tool_reason_code\":\"COMBINED_BUDGET_EXHAUSTED\",\"tool_name_hash\":\"cffbc93e33d83360ae116c785017547c0d5de1c58ca7e61516ee2802b9ee5e41\",\"original_error_code_hash\":\"308c536efb968039c805107954529a53bc84b319664f05590ce991a6eb01ed93\",\"original_reason_code_hash\":\"027a6cf438d30421763225151ba046642727542f39da7f1779babde8613398cf\",\"argument_shape_hash\":\"a821b5b64e0138fe419b8bb26f8edd617e82c7c923b65a8dc8cce3724352f370\",\"incident_phase\":\"tool_precheck\",\"causal_id_hash\":\"d6bd25e8b2aa31b5b6f6a4235a11b88ea593a0cc301313eb65ab28301e9492d6\",\"causal_provenance\":\"TOOL_CALL\",\"causal_failure_code\":\"COMBINED_BUDGET_EXHAUSTED\",\"incident_evidence_status\":\"TYPED_EVIDENCE\",\"incident_origin\":\"TOOL\",\"recovery_observation\":\"UNOBSERVED\",\"argument_field_names\":[\"url\"],\"argument_field_types\":[\"STRING\"]},\"unavailableFields\":[\"tool_action_hash\",\"tool_schema_hash\",\"missing_field_count\",\"invalid_field_count\"]}}}\n\n<!-- gpt-mobile-report:aa84a7d7-d85c-40b8-a4c6-81ac14d7f2d0 -->\n<!-- approved-payload-sha256:a25555d46355cd9b5913f796cf41c3b51db1db5d77275466013bb25faa48795f -->",
+            "state": "closed",
+            "user": {
+              "login": "tailscale-signin",
+              "name": "tailscale-signin",
+              "email": null,
+              "avatar_url": "https://avatars.githubusercontent.com/u/175673106?v=4",
+              "id": 175673106
+            },
+            "assignees": null,
+            "labels": null,
+            "milestone": null,
+            "state_reason": "completed",
+            "comments": 1,
+            "created_at": "2026-11-28T04:49:41Z",
+            "updated_at": "2026-11-28T05:16:15Z",
+            "closed_at": "2026-11-28T05:16:15Z",
+            "display_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2806",
+            "display_title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED"
+          },
+          "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2806",
+          "title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED",
+          "display_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2806",
+          "display_title": "[Debug] tools · COMBINED_BUDGET_EXHAUSTED · COMBINED_BUDGET_EXHAUSTED"
+        }
+      },
+      "verified_readback": {
+        "at": "2026-11-28T05:16:16.813Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:16:15Z",
+        "updated_at": "2026-11-28T05:16:15Z",
+        "comments": 1
+      },
+      "comment_posted_at": "2026-11-28T05:16:14.222Z",
+      "comment_readback": {
+        "id": 7234557352,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2806#issuecomment-7234557352",
+        "body_matches": true,
+        "verified_at": "2026-11-28T05:16:42.951Z"
+      }
+    },
+    {
+      "issue_number": 2807,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2807",
+      "report_id": "3aeb6545-7184-4a7e-abd8-8104074979e9",
+      "approved_payload_sha256": "db845142c71eed681e7c8230f922cbfb82b43632cc6407bdd10037e390c357b3",
+      "refreshed_payload_matches_audited": true,
+      "refreshed_state": "open",
+      "refreshed_updated_at": "2026-11-28T04:49:44Z",
+      "refreshed_comment_count": 0,
+      "refreshed_at": "2026-11-28T05:16:43.535Z",
+      "status": "closed_verified",
+      "prepared_comment": "### Action completed: individual budget-guard review and qualification\n\nReviewed report `3aeb6545-7184-4a7e-abd8-8104074979e9` (2026-11-28T04:49:30.540Z, app build 153) and verified its approved-payload SHA-256. The report was refreshed before this closure.\n\n**Finding:** this distinct `read_url` call was rejected at `tool_precheck` with `dispatched=false` and `COMBINED_BUDGET_EXHAUSTED`. [The shared admission guard](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt#L372-L409) reserves Combined work before invoking the physical tool. A denial leaves the read unexecuted and [finishes from retained evidence](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt#L2146-L2181). This call shares its run hash with #2809, but has a distinct call ID; this does not establish repeated physical execution.\n\n**Validation action:** compiled the actual Combined budget/store/policy sources and ran six existing focused behavior cases, **6/6 passed**: atomic shared ceiling, unknown-reservation preservation, progress-bound renewal, protected finalization funding, consumed single-pass/new-revision recovery, and confirmed pre-dispatch retry. Their source hashes were rechecked against published commit `74ba873cad202e7a99d5fa0681fc75a75b334614` in #2651. This is host guard qualification, not Android device or live-URL execution.\n\n**Recovery:** keep completed evidence and identify unread scope. Review the accepted plan and remaining work; if further reading is required, accept a new bounded request with an appropriate allowance or narrower scope. Renewal must retain its accepted finite-work/progress rules and hard limits. No budget or settings were changed.\n\nThis capsule omits the numeric allowance, denial subtype, and accepted plan, so it cannot establish which resource or admission rule stopped the call, or whether the original plan was sized appropriately. Nearby errors are not causally joined to this call. Recovery remains `UNOBSERVED`.\n\nClosing after the requested investigation and validation action. No new code fix, successful URL read, or live recovery is claimed.\n\n<!-- combined-diagnostic-audit-2794-2827:2807 -->",
+      "comment_id": 7234569217,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2807#issuecomment-7234569217",
+      "closure_update": {
+        "at": "2026-11-28T05:16:45.780Z",
+        "state": "closed",
+        "state_reason": "completed"
+      },
+      "verified_readback": {
+        "at": "2026-11-28T05:16:46.328Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:16:45Z",
+        "updated_at": "2026-11-28T05:16:45Z",
+        "comments": 1
+      },
+      "comment_posted_at": "2026-11-28T05:16:44.198Z",
+      "comment_readback": {
+        "id": 7234569217,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2807#issuecomment-7234569217",
+        "body_matches": true,
+        "verified_at": "2026-11-28T05:16:46.798Z"
+      }
+    },
+    {
+      "issue_number": 2808,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2808",
+      "report_id": "50eb4f9b-a997-4189-a6c5-07a3e92fab80",
+      "approved_payload_sha256": "78256326e9e1fc7c0550c4cd4926600e1d78922f63e736c2690e78fb2e79e3e1",
+      "refreshed_payload_matches_audited": true,
+      "refreshed_state": "open",
+      "refreshed_updated_at": "2026-11-28T04:49:45Z",
+      "refreshed_comment_count": 0,
+      "refreshed_at": "2026-11-28T05:16:47.296Z",
+      "status": "closed_verified",
+      "prepared_comment": "### Action completed: individual budget-guard review and qualification\n\nReviewed report `50eb4f9b-a997-4189-a6c5-07a3e92fab80` (2026-11-28T04:49:30.557Z, app build 153) and verified its approved-payload SHA-256. The report was refreshed before this closure.\n\n**Finding:** this distinct `read_url` call was rejected at `tool_precheck` with `dispatched=false` and `COMBINED_BUDGET_EXHAUSTED`. [The shared admission guard](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt#L372-L409) reserves Combined work before invoking the physical tool. A denial leaves the read unexecuted and [finishes from retained evidence](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt#L2146-L2181). This call shares its run hash with #2811, but has a distinct call ID; this does not establish repeated physical execution.\n\n**Validation action:** compiled the actual Combined budget/store/policy sources and ran six existing focused behavior cases, **6/6 passed**: atomic shared ceiling, unknown-reservation preservation, progress-bound renewal, protected finalization funding, consumed single-pass/new-revision recovery, and confirmed pre-dispatch retry. Their source hashes were rechecked against published commit `74ba873cad202e7a99d5fa0681fc75a75b334614` in #2651. This is host guard qualification, not Android device or live-URL execution.\n\n**Recovery:** keep completed evidence and identify unread scope. Review the accepted plan and remaining work; if further reading is required, accept a new bounded request with an appropriate allowance or narrower scope. Renewal must retain its accepted finite-work/progress rules and hard limits. No budget or settings were changed.\n\nThis capsule omits the numeric allowance, denial subtype, and accepted plan, so it cannot establish which resource or admission rule stopped the call, or whether the original plan was sized appropriately. Nearby errors are not causally joined to this call. Recovery remains `UNOBSERVED`.\n\nClosing after the requested investigation and validation action. No new code fix, successful URL read, or live recovery is claimed.\n\n<!-- combined-diagnostic-audit-2794-2827:2808 -->",
+      "comment_id": 7234569859,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2808#issuecomment-7234569859",
+      "closure_update": {
+        "at": "2026-11-28T05:16:49.576Z",
+        "state": "closed",
+        "state_reason": "completed"
+      },
+      "verified_readback": {
+        "at": "2026-11-28T05:16:50.078Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:16:48Z",
+        "updated_at": "2026-11-28T05:16:48Z",
+        "comments": 1
+      },
+      "comment_posted_at": "2026-11-28T05:16:47.981Z",
+      "comment_readback": {
+        "id": 7234569859,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2808#issuecomment-7234569859",
+        "body_matches": true,
+        "verified_at": "2026-11-28T05:16:50.607Z"
+      }
+    },
+    {
+      "issue_number": 2809,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2809",
+      "report_id": "cb89311d-c672-47a1-a552-158916f7305a",
+      "approved_payload_sha256": "431f9f635473457b098b1d5bb37b5a067450660bd5e864a37e098dfe1c88f383",
+      "refreshed_payload_matches_audited": true,
+      "refreshed_state": "open",
+      "refreshed_updated_at": "2026-11-28T04:49:46Z",
+      "refreshed_comment_count": 0,
+      "refreshed_at": "2026-11-28T05:16:51.077Z",
+      "status": "closed_verified",
+      "prepared_comment": "### Action completed: individual budget-guard review and qualification\n\nReviewed report `cb89311d-c672-47a1-a552-158916f7305a` (2026-11-28T04:49:30.616Z, app build 153) and verified its approved-payload SHA-256. The report was refreshed before this closure.\n\n**Finding:** this distinct `read_url` call was rejected at `tool_precheck` with `dispatched=false` and `COMBINED_BUDGET_EXHAUSTED`. [The shared admission guard](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt#L372-L409) reserves Combined work before invoking the physical tool. A denial leaves the read unexecuted and [finishes from retained evidence](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt#L2146-L2181). This call shares its run hash with #2807, but has a distinct call ID; this does not establish repeated physical execution.\n\n**Validation action:** compiled the actual Combined budget/store/policy sources and ran six existing focused behavior cases, **6/6 passed**: atomic shared ceiling, unknown-reservation preservation, progress-bound renewal, protected finalization funding, consumed single-pass/new-revision recovery, and confirmed pre-dispatch retry. Their source hashes were rechecked against published commit `74ba873cad202e7a99d5fa0681fc75a75b334614` in #2651. This is host guard qualification, not Android device or live-URL execution.\n\n**Recovery:** keep completed evidence and identify unread scope. Review the accepted plan and remaining work; if further reading is required, accept a new bounded request with an appropriate allowance or narrower scope. Renewal must retain its accepted finite-work/progress rules and hard limits. No budget or settings were changed.\n\nThis capsule omits the numeric allowance, denial subtype, and accepted plan, so it cannot establish which resource or admission rule stopped the call, or whether the original plan was sized appropriately. Nearby errors are not causally joined to this call. Recovery remains `UNOBSERVED`.\n\nClosing after the requested investigation and validation action. No new code fix, successful URL read, or live recovery is claimed.\n\n<!-- combined-diagnostic-audit-2794-2827:2809 -->",
+      "comment_id": 7234570506,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2809#issuecomment-7234570506",
+      "closure_update": {
+        "at": "2026-11-28T05:16:53.256Z",
+        "state": "closed",
+        "state_reason": "completed"
+      },
+      "verified_readback": {
+        "at": "2026-11-28T05:16:53.844Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:16:52Z",
+        "updated_at": "2026-11-28T05:16:52Z",
+        "comments": 1
+      },
+      "comment_posted_at": "2026-11-28T05:16:51.832Z",
+      "comment_readback": {
+        "id": 7234570506,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2809#issuecomment-7234570506",
+        "body_matches": true,
+        "verified_at": "2026-11-28T05:16:54.411Z"
+      }
+    },
+    {
+      "issue_number": 2810,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2810",
+      "report_id": "51ecd6d7-f424-4a0c-9712-c35e07fa5490",
+      "approved_payload_sha256": "c96e9a4d6a2dea4ddbe53b10e3c626963143fef8dcf8c56c6aab13b292208129",
+      "refreshed_payload_matches_audited": true,
+      "refreshed_state": "open",
+      "refreshed_updated_at": "2026-11-28T04:49:47Z",
+      "refreshed_comment_count": 0,
+      "refreshed_at": "2026-11-28T05:16:54.864Z",
+      "status": "closed_verified",
+      "prepared_comment": "### Action completed: individual budget-guard review and qualification\n\nReviewed report `51ecd6d7-f424-4a0c-9712-c35e07fa5490` (2026-11-28T04:49:30.620Z, app build 153) and verified its approved-payload SHA-256. The report was refreshed before this closure.\n\n**Finding:** this distinct `read_url` call was rejected at `tool_precheck` with `dispatched=false` and `COMBINED_BUDGET_EXHAUSTED`. [The shared admission guard](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt#L372-L409) reserves Combined work before invoking the physical tool. A denial leaves the read unexecuted and [finishes from retained evidence](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt#L2146-L2181). This call shares its run hash with #2806, but has a distinct call ID; this does not establish repeated physical execution.\n\n**Validation action:** compiled the actual Combined budget/store/policy sources and ran six existing focused behavior cases, **6/6 passed**: atomic shared ceiling, unknown-reservation preservation, progress-bound renewal, protected finalization funding, consumed single-pass/new-revision recovery, and confirmed pre-dispatch retry. Their source hashes were rechecked against published commit `74ba873cad202e7a99d5fa0681fc75a75b334614` in #2651. This is host guard qualification, not Android device or live-URL execution.\n\n**Recovery:** keep completed evidence and identify unread scope. Review the accepted plan and remaining work; if further reading is required, accept a new bounded request with an appropriate allowance or narrower scope. Renewal must retain its accepted finite-work/progress rules and hard limits. No budget or settings were changed.\n\nThis capsule omits the numeric allowance, denial subtype, and accepted plan, so it cannot establish which resource or admission rule stopped the call, or whether the original plan was sized appropriately. Nearby errors are not causally joined to this call. Recovery remains `UNOBSERVED`.\n\nClosing after the requested investigation and validation action. No new code fix, successful URL read, or live recovery is claimed.\n\n<!-- combined-diagnostic-audit-2794-2827:2810 -->",
+      "comment_id": 7234571180,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2810#issuecomment-7234571180",
+      "closure_update": {
+        "at": "2026-11-28T05:16:57.119Z",
+        "state": "closed",
+        "state_reason": "completed"
+      },
+      "verified_readback": {
+        "at": "2026-11-28T05:16:57.672Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:16:56Z",
+        "updated_at": "2026-11-28T05:16:56Z",
+        "comments": 1
+      },
+      "comment_posted_at": "2026-11-28T05:16:55.632Z",
+      "comment_readback": {
+        "id": 7234571180,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2810#issuecomment-7234571180",
+        "body_matches": true,
+        "verified_at": "2026-11-28T05:16:58.248Z"
+      }
+    },
+    {
+      "issue_number": 2811,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2811",
+      "report_id": "a78a937f-8388-4e15-9df6-7a492c109787",
+      "approved_payload_sha256": "224277905c136c5d5e18f74a5b9dd9b6e276bf7f50b7a651dae29db2a0e02b3f",
+      "refreshed_payload_matches_audited": true,
+      "refreshed_state": "open",
+      "refreshed_updated_at": "2026-11-28T04:49:49Z",
+      "refreshed_comment_count": 0,
+      "refreshed_at": "2026-11-28T05:16:58.783Z",
+      "status": "closed_verified",
+      "prepared_comment": "### Action completed: individual budget-guard review and qualification\n\nReviewed report `a78a937f-8388-4e15-9df6-7a492c109787` (2026-11-28T04:49:30.637Z, app build 153) and verified its approved-payload SHA-256. The report was refreshed before this closure.\n\n**Finding:** this distinct `read_url` call was rejected at `tool_precheck` with `dispatched=false` and `COMBINED_BUDGET_EXHAUSTED`. [The shared admission guard](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt#L372-L409) reserves Combined work before invoking the physical tool. A denial leaves the read unexecuted and [finishes from retained evidence](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt#L2146-L2181). This call shares its run hash with #2808, but has a distinct call ID; this does not establish repeated physical execution.\n\n**Validation action:** compiled the actual Combined budget/store/policy sources and ran six existing focused behavior cases, **6/6 passed**: atomic shared ceiling, unknown-reservation preservation, progress-bound renewal, protected finalization funding, consumed single-pass/new-revision recovery, and confirmed pre-dispatch retry. Their source hashes were rechecked against published commit `74ba873cad202e7a99d5fa0681fc75a75b334614` in #2651. This is host guard qualification, not Android device or live-URL execution.\n\n**Recovery:** keep completed evidence and identify unread scope. Review the accepted plan and remaining work; if further reading is required, accept a new bounded request with an appropriate allowance or narrower scope. Renewal must retain its accepted finite-work/progress rules and hard limits. No budget or settings were changed.\n\nThis capsule omits the numeric allowance, denial subtype, and accepted plan, so it cannot establish which resource or admission rule stopped the call, or whether the original plan was sized appropriately. Nearby errors are not causally joined to this call. Recovery remains `UNOBSERVED`.\n\nClosing after the requested investigation and validation action. No new code fix, successful URL read, or live recovery is claimed.\n\n<!-- combined-diagnostic-audit-2794-2827:2811 -->",
+      "comment_id": 7234571841,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2811#issuecomment-7234571841",
+      "closure_update": {
+        "at": "2026-11-28T05:17:01.064Z",
+        "state": "closed",
+        "state_reason": "completed"
+      },
+      "verified_readback": {
+        "at": "2026-11-28T05:17:01.618Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:17:00Z",
+        "updated_at": "2026-11-28T05:17:00Z",
+        "comments": 1
+      },
+      "comment_posted_at": "2026-11-28T05:16:59.536Z",
+      "comment_readback": {
+        "id": 7234571841,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2811#issuecomment-7234571841",
+        "body_matches": true,
+        "verified_at": "2026-11-28T05:17:02.102Z"
+      }
+    },
+    {
+      "issue_number": 2818,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2818",
+      "report_id": "eff4b764-f06d-475f-912d-e352cc520b1e",
+      "approved_payload_sha256": "34c6083d9576755366ecbe51702819617c90dcaeba6ed645fabab635173526f8",
+      "refreshed_payload_matches_audited": true,
+      "refreshed_state": "open",
+      "refreshed_updated_at": "2026-11-28T04:49:58Z",
+      "refreshed_comment_count": 0,
+      "refreshed_at": "2026-11-28T05:17:02.648Z",
+      "status": "closed_verified",
+      "prepared_comment": "### Action completed: individual budget-guard review and qualification\n\nReviewed report `eff4b764-f06d-475f-912d-e352cc520b1e` (2026-11-28T04:49:31.302Z, app build 153) and verified its approved-payload SHA-256. The report was refreshed before this closure.\n\n**Finding:** this distinct `read_url` call was rejected at `tool_precheck` with `dispatched=false` and `COMBINED_BUDGET_EXHAUSTED`. [The shared admission guard](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt#L372-L409) reserves Combined work before invoking the physical tool. A denial leaves the read unexecuted and [finishes from retained evidence](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt#L2146-L2181).\n\n**Validation action:** compiled the actual Combined budget/store/policy sources and ran six existing focused behavior cases, **6/6 passed**: atomic shared ceiling, unknown-reservation preservation, progress-bound renewal, protected finalization funding, consumed single-pass/new-revision recovery, and confirmed pre-dispatch retry. Their source hashes were rechecked against published commit `74ba873cad202e7a99d5fa0681fc75a75b334614` in #2651. This is host guard qualification, not Android device or live-URL execution.\n\n**Recovery:** keep completed evidence and identify unread scope. Review the accepted plan and remaining work; if further reading is required, accept a new bounded request with an appropriate allowance or narrower scope. Renewal must retain its accepted finite-work/progress rules and hard limits. No budget or settings were changed.\n\nThis capsule omits the numeric allowance, denial subtype, and accepted plan, so it cannot establish which resource or admission rule stopped the call, or whether the original plan was sized appropriately. Nearby errors are not causally joined to this call. Recovery remains `UNOBSERVED`.\n\nClosing after the requested investigation and validation action. No new code fix, successful URL read, or live recovery is claimed.\n\n<!-- combined-diagnostic-audit-2794-2827:2818 -->",
+      "comment_id": 7234572522,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2818#issuecomment-7234572522",
+      "closure_update": {
+        "at": "2026-11-28T05:17:04.815Z",
+        "state": "closed",
+        "state_reason": "completed"
+      },
+      "verified_readback": {
+        "at": "2026-11-28T05:17:05.405Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:17:04Z",
+        "updated_at": "2026-11-28T05:17:04Z",
+        "comments": 1
+      },
+      "comment_posted_at": "2026-11-28T05:17:03.494Z",
+      "comment_readback": {
+        "id": 7234572522,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2818#issuecomment-7234572522",
+        "body_matches": true,
+        "verified_at": "2026-11-28T05:17:05.995Z"
+      }
+    },
+    {
+      "issue_number": 2819,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2819",
+      "report_id": "b4a7cd01-5128-4c36-9d59-8b8e7afce9ad",
+      "approved_payload_sha256": "30c32f8e777dadfdb625a770f50e98cba548a07909dcf10784e5f54fd47ecce8",
+      "refreshed_payload_matches_audited": true,
+      "refreshed_state": "open",
+      "refreshed_updated_at": "2026-11-28T04:49:59Z",
+      "refreshed_comment_count": 0,
+      "refreshed_at": "2026-11-28T05:17:06.658Z",
+      "status": "closed_verified",
+      "prepared_comment": "### Action completed: individual budget-guard review and qualification\n\nReviewed report `b4a7cd01-5128-4c36-9d59-8b8e7afce9ad` (2026-11-28T04:49:31.312Z, app build 153) and verified its approved-payload SHA-256. The report was refreshed before this closure.\n\n**Finding:** this distinct `read_url` call was rejected at `tool_precheck` with `dispatched=false` and `COMBINED_BUDGET_EXHAUSTED`. [The shared admission guard](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt#L372-L409) reserves Combined work before invoking the physical tool. A denial leaves the read unexecuted and [finishes from retained evidence](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt#L2146-L2181).\n\n**Validation action:** compiled the actual Combined budget/store/policy sources and ran six existing focused behavior cases, **6/6 passed**: atomic shared ceiling, unknown-reservation preservation, progress-bound renewal, protected finalization funding, consumed single-pass/new-revision recovery, and confirmed pre-dispatch retry. Their source hashes were rechecked against published commit `74ba873cad202e7a99d5fa0681fc75a75b334614` in #2651. This is host guard qualification, not Android device or live-URL execution.\n\n**Recovery:** keep completed evidence and identify unread scope. Review the accepted plan and remaining work; if further reading is required, accept a new bounded request with an appropriate allowance or narrower scope. Renewal must retain its accepted finite-work/progress rules and hard limits. No budget or settings were changed.\n\nThis capsule omits the numeric allowance, denial subtype, and accepted plan, so it cannot establish which resource or admission rule stopped the call, or whether the original plan was sized appropriately. Nearby errors are not causally joined to this call. Recovery remains `UNOBSERVED`.\n\nClosing after the requested investigation and validation action. No new code fix, successful URL read, or live recovery is claimed.\n\n<!-- combined-diagnostic-audit-2794-2827:2819 -->",
+      "comment_id": 7234573181,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2819#issuecomment-7234573181",
+      "closure_update": {
+        "at": "2026-11-28T05:17:09.012Z",
+        "state": "closed",
+        "state_reason": "completed"
+      },
+      "verified_readback": {
+        "at": "2026-11-28T05:17:09.553Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:17:08Z",
+        "updated_at": "2026-11-28T05:17:08Z",
+        "comments": 1
+      },
+      "comment_posted_at": "2026-11-28T05:17:07.503Z",
+      "comment_readback": {
+        "id": 7234573181,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2819#issuecomment-7234573181",
+        "body_matches": true,
+        "verified_at": "2026-11-28T05:17:10.053Z"
+      }
+    },
+    {
+      "issue_number": 2820,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2820",
+      "report_id": "95f5fc5d-1e96-4194-86e7-cee0b6153353",
+      "approved_payload_sha256": "21556d71d403c1b94f4c767de15e01937b3645804950761e52e1f057981bf9be",
+      "refreshed_payload_matches_audited": true,
+      "refreshed_state": "open",
+      "refreshed_updated_at": "2026-11-28T04:50:00Z",
+      "refreshed_comment_count": 0,
+      "refreshed_at": "2026-11-28T05:17:10.513Z",
+      "status": "closed_verified",
+      "prepared_comment": "### Action completed: individual budget-guard review and qualification\n\nReviewed report `95f5fc5d-1e96-4194-86e7-cee0b6153353` (2026-11-28T04:49:31.317Z, app build 153) and verified its approved-payload SHA-256. The report was refreshed before this closure.\n\n**Finding:** this distinct `read_url` call was rejected at `tool_precheck` with `dispatched=false` and `COMBINED_BUDGET_EXHAUSTED`. [The shared admission guard](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt#L372-L409) reserves Combined work before invoking the physical tool. A denial leaves the read unexecuted and [finishes from retained evidence](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt#L2146-L2181).\n\n**Validation action:** compiled the actual Combined budget/store/policy sources and ran six existing focused behavior cases, **6/6 passed**: atomic shared ceiling, unknown-reservation preservation, progress-bound renewal, protected finalization funding, consumed single-pass/new-revision recovery, and confirmed pre-dispatch retry. Their source hashes were rechecked against published commit `74ba873cad202e7a99d5fa0681fc75a75b334614` in #2651. This is host guard qualification, not Android device or live-URL execution.\n\n**Recovery:** keep completed evidence and identify unread scope. Review the accepted plan and remaining work; if further reading is required, accept a new bounded request with an appropriate allowance or narrower scope. Renewal must retain its accepted finite-work/progress rules and hard limits. No budget or settings were changed.\n\nThis capsule omits the numeric allowance, denial subtype, and accepted plan, so it cannot establish which resource or admission rule stopped the call, or whether the original plan was sized appropriately. Nearby errors are not causally joined to this call. Recovery remains `UNOBSERVED`.\n\nClosing after the requested investigation and validation action. No new code fix, successful URL read, or live recovery is claimed.\n\n<!-- combined-diagnostic-audit-2794-2827:2820 -->",
+      "comment_id": 7234573864,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2820#issuecomment-7234573864",
+      "closure_update": {
+        "at": "2026-11-28T05:17:12.467Z",
+        "state": "closed",
+        "state_reason": "completed"
+      },
+      "verified_readback": {
+        "at": "2026-11-28T05:17:12.964Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:17:11Z",
+        "updated_at": "2026-11-28T05:17:11Z",
+        "comments": 1
+      },
+      "comment_posted_at": "2026-11-28T05:17:11.238Z",
+      "comment_readback": {
+        "id": 7234573864,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2820#issuecomment-7234573864",
+        "body_matches": true,
+        "verified_at": "2026-11-28T05:17:13.487Z"
+      }
+    },
+    {
+      "issue_number": 2821,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2821",
+      "report_id": "3eec11e2-de34-4e4f-9374-79564150372b",
+      "approved_payload_sha256": "7a242d49b294027da3cf1da8d0be71cbb687d4227ec8540cd2d87013136def1f",
+      "refreshed_payload_matches_audited": true,
+      "refreshed_state": "open",
+      "refreshed_updated_at": "2026-11-28T04:50:01Z",
+      "refreshed_comment_count": 0,
+      "refreshed_at": "2026-11-28T05:17:13.949Z",
+      "status": "closed_verified",
+      "prepared_comment": "### Action completed: individual budget-guard review and qualification\n\nReviewed report `3eec11e2-de34-4e4f-9374-79564150372b` (2026-11-28T04:49:31.338Z, app build 153) and verified its approved-payload SHA-256. The report was refreshed before this closure.\n\n**Finding:** this distinct `read_url` call was rejected at `tool_precheck` with `dispatched=false` and `COMBINED_BUDGET_EXHAUSTED`. [The shared admission guard](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt#L372-L409) reserves Combined work before invoking the physical tool. A denial leaves the read unexecuted and [finishes from retained evidence](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt#L2146-L2181).\n\n**Validation action:** compiled the actual Combined budget/store/policy sources and ran six existing focused behavior cases, **6/6 passed**: atomic shared ceiling, unknown-reservation preservation, progress-bound renewal, protected finalization funding, consumed single-pass/new-revision recovery, and confirmed pre-dispatch retry. Their source hashes were rechecked against published commit `74ba873cad202e7a99d5fa0681fc75a75b334614` in #2651. This is host guard qualification, not Android device or live-URL execution.\n\n**Recovery:** keep completed evidence and identify unread scope. Review the accepted plan and remaining work; if further reading is required, accept a new bounded request with an appropriate allowance or narrower scope. Renewal must retain its accepted finite-work/progress rules and hard limits. No budget or settings were changed.\n\nThis capsule omits the numeric allowance, denial subtype, and accepted plan, so it cannot establish which resource or admission rule stopped the call, or whether the original plan was sized appropriately. Nearby errors are not causally joined to this call. Recovery remains `UNOBSERVED`.\n\nClosing after the requested investigation and validation action. No new code fix, successful URL read, or live recovery is claimed.\n\n<!-- combined-diagnostic-audit-2794-2827:2821 -->",
+      "comment_id": 7234574448,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2821#issuecomment-7234574448",
+      "closure_update": {
+        "at": "2026-11-28T05:17:16.021Z",
+        "state": "closed",
+        "state_reason": "completed"
+      },
+      "verified_readback": {
+        "at": "2026-11-28T05:17:16.746Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:17:15Z",
+        "updated_at": "2026-11-28T05:17:15Z",
+        "comments": 1
+      },
+      "comment_posted_at": "2026-11-28T05:17:14.648Z",
+      "comment_readback": {
+        "id": 7234574448,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2821#issuecomment-7234574448",
+        "body_matches": true,
+        "verified_at": "2026-11-28T05:17:17.344Z"
+      }
+    },
+    {
+      "issue_number": 2827,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2827",
+      "report_id": "c6151946-965e-4b2d-9aa8-d1febff459ad",
+      "approved_payload_sha256": "c3895e92b61890b57815bafac42d7c42a993e03ac537333fc914e2306514ce4d",
+      "refreshed_payload_matches_audited": true,
+      "refreshed_state": "open",
+      "refreshed_updated_at": "2026-11-28T04:51:44Z",
+      "refreshed_comment_count": 0,
+      "refreshed_at": "2026-11-28T05:17:17.904Z",
+      "status": "closed_verified",
+      "prepared_comment": "### Action completed: individual finalization review and recovery qualification\n\nReviewed report `c6151946-965e-4b2d-9aa8-d1febff459ad` (2026-11-28T04:51:44.417Z, app build 153) and verified its approved-payload SHA-256. The report was refreshed before this closure.\n\n**Finding:** this is a completed answer with unmet local requirements: `TOPIC`, 113 issues, 105 failed checks, 5 unverified checks, zero repair rounds, and `SINGLE_PASS_LOCAL_CHECKS_ONLY`. Provider text and an emitted answer event do not establish a checked final answer. Those counters are different aggregates, not a completion denominator. This report is separate from #2826's unknown remote completion.\n\nThe current [publication guard](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliverySession.kt#L560-L617) retains the failed assessment and prevents certification as a checked final answer. [Recovery](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/74ba873cad202e7a99d5fa0681fc75a75b334614/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecoverySnapshot.kt#L17-L23) requires review and an explicitly accepted **new correction revision**; this completed answer must not be resumed as an unfinished delivery or silently replayed under its consumed single-pass allowance.\n\n**Validation action:** compiled the actual Combined budget/store/policy sources and ran six existing focused behavior cases, **6/6 passed**, including consumed single-pass/new-revision recovery and confirmed pre-dispatch retry. Their source hashes were rechecked against published commit `74ba873cad202e7a99d5fa0681fc75a75b334614` in #2651. This is host guard qualification, not Android device or live-provider execution.\n\nThe original request, full answer, failed-check IDs, and complete quality report are absent, so this capsule cannot reproduce or rule out a false-positive topic check. Editorial recovery remains unobserved. Closing after the requested investigation and validation action; no new code fix or corrected final answer is claimed.\n\n<!-- combined-diagnostic-audit-2794-2827:2827 -->",
+      "comment_id": 7234575192,
+      "comment_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2827#issuecomment-7234575192",
+      "closure_update": {
+        "at": "2026-11-28T05:17:20.482Z",
+        "state": "closed",
+        "state_reason": "completed"
+      },
+      "verified_readback": {
+        "at": "2026-11-28T05:17:21.076Z",
+        "state": "closed",
+        "state_reason": "completed",
+        "closed_at": "2026-11-28T05:17:19Z",
+        "updated_at": "2026-11-28T05:17:19Z",
+        "comments": 1
+      },
+      "comment_posted_at": "2026-11-28T05:17:18.932Z",
+      "comment_readback": {
+        "id": 7234575192,
+        "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2827#issuecomment-7234575192",
+        "body_matches": true,
+        "verified_at": "2026-11-28T05:17:21.585Z"
+      }
+    }
+  ],
+  "completed_at": "2026-11-28T05:17:21.846Z",
+  "summary": {
+    "closed_and_verified": 11,
+    "already_closed": 0,
+    "comments_verified": 11
+  }
+}

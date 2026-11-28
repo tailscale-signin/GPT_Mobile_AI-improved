@@ -1,0 +1,105 @@
+{
+  "source_revision": "bd520504afa522c7c552971e77a34e6cb7aa260c",
+  "scope": "Exact-source focused host guard qualification; not an Android or live-service test",
+  "sources_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGate.kt": "f5e0084eccde7b186ac55bebcb782c77c9cff515f331aa1932746f81dfe9adb0",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/ResearchConnectivityGateTest.kt": "223d2f4894c38463c7940b44b28faee146b4db0f172479c85955ae3cea7cf75e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceipt.kt": "4075c1222404339b9c8051cc8a1ceba2b00ab45404e164bddfadce4d627c1515",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchServiceHealth.kt": "24e336880425b47526d5a443d7709a03135441ee86ddd8dedd9431150d2a02cf",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SearchFailureReceiptTest.kt": "c53378e09efccc2462ecabe7d05079177a857bd89647125c473c5b7b55ac040e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/LocalServiceHealth.kt": "277dc59c78293bb0b2df71fd252b9d863ac910e7e8454395ee4908ccef82cc01",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/LocalConnectionPreflight.kt": "d46c6d2e15062a70173aba9d9c35978bc50c76c511a9aa562b1ad5fc39ac600a",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt": "4e62bcfa5965a2f9ee83ede3f83dd8e926f7f555199058f5f36a0518a21f2d66",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/ApiState.kt": "8616379b78db3649c5c5a1ca7af3e23dcd782f0bdb3b16895f3bbf50f4fc3bed",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearchTest.kt": "d71f6b6c28c90d6fbd71eda27e21e613a5aea702f4065bde2d32a5ecb8572d30",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt": "10ba21bf63aba1d1dc64e62cecae1c1aef910e6e0714902209a008275bb6092d",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlToolTest.kt": "587112797dd51579bf9699a793ec6bc50744074b7328bc2db987f94917b2b34a"
+  },
+  "extracted_declarations": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/LocalServiceHealth.kt": [
+      {
+        "from": "enum class ConnectionHealth {",
+        "before": "/** DNS is host scoped;",
+        "sha256": "03cae27155ed1e0d52d5cfc48e392f0e53c16fc46d647f7d2d26cf65097b4e04"
+      },
+      {
+        "from": "    fun classify(failure: Throwable): ConnectionHealth {",
+        "before": "    fun recordFailure(url: String, failure: Throwable)",
+        "sha256": "3ced083f1879362b2ceebf72bb18d211d5c84d350009c7752a4d080dcf198fb7"
+      }
+    ],
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/LocalConnectionPreflight.kt": [
+      {
+        "from": "internal class LocalServiceUnavailableException(",
+        "before": "/** Retries read-only TCP checks",
+        "sha256": "a524e1801cd178f7383053751c3f99577bb097892406169d33f52cb387b0de3b"
+      }
+    ],
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearch.kt": [
+      {
+        "from": "    enum class Readiness(",
+        "before": "    fun readiness(",
+        "sha256": "505b5bb4f5a5f6a2a30f602f1532b16e0cc39641d59925de10ee060e17f9da67"
+      },
+      {
+        "from": "    fun configurationBlock(",
+        "before": "    suspend fun prepare(",
+        "sha256": "d6b0cf417ab9a3d21e49f7c74dfd9a392ff78ad42324ce5f0a5efafcc8c4fdb6"
+      }
+    ],
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/AppAssistedSearchTest.kt": [
+      {
+        "from": "    @Test fun explicitlyDisabledSearchHasAnActionablePreflightWithoutPreparingTools()",
+        "before": "    @Test fun searchReadinessIdentifiesTheFirstInventoryThatLostAnEngine()",
+        "sha256": "7a7e870b57e8a34c1c98885158020fb1f5104a6fe0bfac4634a4c5191c72b8aa"
+      }
+    ],
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt": [
+      {
+        "from": "internal fun readUrlPrecheckRetryable(",
+        "before": "private class ReadUrlException",
+        "sha256": "451fb36c22f941a84de52845a61ef124849308a57e768f311a7bd7a9465ded1a"
+      },
+      {
+        "from": "    private fun readerFailureCode(",
+        "before": "    private fun readerFailureStatus(",
+        "sha256": "cf8a2a35be0777f0c3c34f97aac92a86a0fb219e0bf58eb60ea06e8da3f0e911"
+      }
+    ],
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlToolTest.kt": [
+      {
+        "from": "    @Test fun transientReadUrlCapacityAndConnectivityPrechecksAreRetryable()",
+        "before": "    @Test fun sourceHttpRejectionsRetainStatusWithoutPublishingBodyOrUrl()",
+        "sha256": "90173e6127c13823c87da7919fa5861d5ef20f047024d2439fc64c848d64d93d"
+      }
+    ]
+  },
+  "ports": [
+    "Unused nullable ApiState.Error types only: ProgressDeadlineOutcome, RecoveryBlock, CombinedRecoveryFailure, ProviderLimitDecision. No decision, DTO field, retry classifier, transport receipt, or gate implementation is stubbed."
+  ],
+  "test_counts": {
+    "existing_unmodified_test_methods": 13,
+    "additional_host_fixture_using_exact_classifier_and_receipt": 1,
+    "total": 14
+  },
+  "limitations": [
+    "No HTTP/DNS traffic or real hostname validation performed; redirect executeOnce/read paths are source-reviewed, not executed in this slice.",
+    "No production profile setting was changed, no engine was authorized, and no provider request was made.",
+    "Android app/device, full ChatRepository caller execution, and complete ReadUrlTool HTTP integration tests are outside this slice."
+  ],
+  "generated_files_sha256": {
+    "LocalServiceClassification.kt": "fb7673b4adfdce8d2ca10a396efa586ce28c25b199c3cf2c68f8221f703cd872",
+    "AppSearchConfiguration.kt": "3a78fa7433039aae84e6db8380d4cede308513113eb78ccb88315390508e1288",
+    "ApiStateError.kt": "4bd17efd1ee1f3623a06ef1ec9a80048814113b51ba6283817f9aaadf099b22f",
+    "UnusedAgentTypes.kt": "12a999bcd326cb5a2b7af68e25d338a0d1abfc1b1017153fba27e60c0b3d0901",
+    "UnusedProviderType.kt": "a326faedcf88f257c877fb24019b9928e24c61385b2dd326a4b6bad0ac17c2f6",
+    "AppSearchConfigurationHostTest.kt": "995f747f88fa7f7b89b11b62c088bc20b7d0c2b6d00eae4ae74c5f1981f431fe",
+    "ReaderFailureClassification.kt": "551dabcef2b4ef0c0324f7f4c157eed29c96c35c59941623b6fc18cf49634859",
+    "ReaderFailureHostTest.kt": "065fb9a5c3288f08ffe39c049e6cb0aed7d8d63446de453cd38538f1d81b7cca"
+  },
+  "result": {
+    "exit_code": 0,
+    "test_summary": "OK (14 tests)"
+  },
+  "source_hashes_still_match": true
+}

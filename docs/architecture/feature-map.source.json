@@ -1197,7 +1197,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/IssueReportHost.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/IssueReportViewModel.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordRecoverySession.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingWindowTest.kt",
@@ -1230,7 +1231,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidRecognitionRecoveryTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailureReportingTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceCompactionTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportWorkerTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportWorkerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -1247,7 +1249,9 @@
         "docs/repairs/incident-policy-vocabulary-parity-2026-11-24-task.json",
         "docs/repairs/ci-watch-catalog-negotiation-2026-11-24-task.json",
         "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
-        "docs/repairs/unified-intelligence-interface-2026-11-27.md"
+        "docs/repairs/unified-intelligence-interface-2026-11-27.md",
+        "docs/repairs/diagnostics-2794-2827-2026-11-28.md",
+        "docs/repairs/diagnostics-2794-2827-2026-11-28-task.json"
       ],
       "invariants": [
         "Keep diagnostic values within the shared closed vocabulary and exclude raw source/provider text.",
@@ -1265,7 +1269,8 @@
         "Reports containing the new GitHub policy-selection fields require their distinct receiver capability before exact approved bytes are dispatched; older reports retain their existing delivery requirements.",
         "Android recognition incidents retain the owning capture attempt, observed dispatch and failure phase; local retry pacing is not a measured platform quota reset, and raw attempt identity never leaves the approved diagnostic projection.",
         "Compact acceptance reports prioritize observed blocker totals alongside deadline evidence; omitted criterion rows do not hide recorded blocker counts, and absent counts remain unknown.",
-        "Report dialogs use standard Compose modal ownership. Every close event advances ownership immediately; late outbox completions cannot reopen dismissed controls or replace a later selection. Newly delivered submissions close to the conversation, while deliberately opened historical receipts remain inspectable."
+        "Report dialogs use standard Compose modal ownership. Every close event advances ownership immediately; late outbox completions cannot reopen dismissed controls or replace a later selection. Newly delivered submissions close to the conversation, while deliberately opened historical receipts remain inspectable.",
+        "Only the complete application-owned unknown-append recovery tuple maps to REMOTE_OUTCOME_UNKNOWN; preserve the original code hash and review/no-replay boundaries without inventing transport evidence."
       ],
       "routing": {
         "role": "user_control",

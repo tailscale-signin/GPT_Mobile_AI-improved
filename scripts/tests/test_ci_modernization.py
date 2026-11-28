@@ -97,6 +97,8 @@ class WorkflowPolicyTest(unittest.TestCase):
         self.assertIn('path: build/reports/early-android-regressions/', artifact)
         expected = {
             'dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSourceTest',
+            'dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentsTest',
+            'dev.chungjungsoo.gptmobile.data.agent.CombinedAppendRecoverySessionTest',
             'dev.chungjungsoo.gptmobile.data.workspace.ProtectedDiagnosticProjectionTest',
             'dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSessionTest',
             'dev.chungjungsoo.gptmobile.data.github.GitHubCommitPaginationRecoveryTest',

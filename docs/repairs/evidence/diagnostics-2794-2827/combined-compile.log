@@ -1,0 +1,3 @@
+repo/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudget.kt:272:250: warning: unnecessary safe call on a non-null receiver of type 'CombinedWorkItem'.
+                if (state.finalizationWriterUid != context.profileUid || state.finalizationWriterPlanId.isNullOrBlank() || previous.any { it.status == CombinedReservationStatus.RESERVED } || required?.role != CombinedRunRole.CONTINUATION || required?.required != true) {
+                                                                                                                                                                                                                                                         ^^

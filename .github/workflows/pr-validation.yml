@@ -171,6 +171,8 @@ jobs:
           # The full suite below still reruns every test and generates coverage.
           python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:testDebugUnitTest --rerun --no-daemon --console=plain --max-workers=1 \
             --tests 'dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSourceTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentsTest' \
+            --tests 'dev.chungjungsoo.gptmobile.data.agent.CombinedAppendRecoverySessionTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.workspace.ProtectedDiagnosticProjectionTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSessionTest' \
             --tests 'dev.chungjungsoo.gptmobile.data.github.GitHubCommitPaginationRecoveryTest' \

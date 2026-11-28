@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "49f287092e01f13391a1d886e7d30ee5b83b03a5091a4ddb28861faa6de8d6ec",
+  "source_digest": "93e5051fe5bba60a29c3d36f72ef4a48879b2c6dc1f8ef0076317a50a8a59721",
   "file_count": 3282,
-  "indexed_line_count": 565071,
+  "indexed_line_count": 565105,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 274,
-      "indexed_line_count": 49847
+      "indexed_line_count": 49867
     },
     {
       "id": "agent_tools",
@@ -131,7 +131,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 110,
-      "indexed_line_count": 17715
+      "indexed_line_count": 17729
     },
     {
       "id": "benchmark",
@@ -1278,8 +1278,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordRecoverySession.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "985d111a71025c758e98634313ffc3f435c708284dc01c234a89d5730bd14a04",
-      "indexed_lines": 206
+      "sha256": "223c577973a2c1ab1af9f05293ce116e8d9b74ab7681c6ed3bbb60848434f959",
+      "indexed_lines": 226
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedRecordStore.kt",
@@ -6304,8 +6304,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "5e9f13b83d4e50b5f22b6c140f1bd84ed670a730ff43a1ac3876f05b4e6b19a3",
-      "indexed_lines": 745
+      "sha256": "20d6e4c4cebc7f2bcbfe049cb72edcb4e6171c529508012364c9ace21fba7fad",
+      "indexed_lines": 759
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportManualCapture.kt",

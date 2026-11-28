@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_map>
 #include "kokoro_execution_provider.h"
+#include "streaming_asr_retirement.h"
 
 namespace asr_runtime {
 
@@ -32,9 +33,16 @@ struct Context {
   std::string discovery = "not_started";
   std::atomic<bool> cancelled{false};
   Ort::RunOptions run_options;
+  RetainedNativeOwners native_owners;
 };
 
 inline thread_local Context *active_context = nullptr;
+
+template <typename Owner>
+inline void RetainNativeOwner(const std::shared_ptr<Owner> &owner) {
+  if (!active_context) throw std::runtime_error("ASR_LIFETIME_UNAVAILABLE");
+  active_context->native_owners.Retain(owner);
+}
 struct Scope {
   Context *previous;
   explicit Scope(Context &context) : previous(active_context) { active_context = &context; }

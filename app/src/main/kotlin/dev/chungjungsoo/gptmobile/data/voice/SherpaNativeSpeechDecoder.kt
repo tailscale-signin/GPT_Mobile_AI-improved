@@ -62,6 +62,8 @@ internal class SherpaNativeSpeechDecoder internal constructor(
     @Volatile private var native: SherpaSpeechNative? = null
 
     @Volatile private var cancelled = false
+
+    @Volatile private var retirementFailure: VoiceRecognitionRuntimeException? = null
     private var directory: String? = null
     private var language = "en-US"
     private var vocabularySize = 0
@@ -212,29 +214,50 @@ internal class SherpaNativeSpeechDecoder internal constructor(
 
     override fun cancel() {
         cancelled = true
-        native?.cancel()
+        if (retirementFailure == null) native?.cancel()
     }
 
     override fun close() {
         releaseStream()
+        retirementFailure?.let { throw it }
         val retiring = native
+        try {
+            retiring?.close()
+        } catch (failure: Throwable) {
+            throw retainRetirementFailure(failure)
+        }
         native = null
         directory = null
-        retiring?.close()
     }
 
     private inline fun <T> checked(action: () -> T): T = try {
+        retirementFailure?.let { throw it }
         action()
     } catch (failure: StreamingAsr.Failure) {
+        if (failure.code == "ASR_RETIREMENT_UNCONFIRMED") throw retainRetirementFailure(failure)
         failureCode = failure.code
         val message = when (failure.code) {
             "ASR_ACCELERATOR_NOT_EXECUTED" -> "The Nemotron encoder did not execute on the requested GPU. Select CPU or check GPU compatibility."
             "ASR_ACCELERATOR_UNAVAILABLE", "ASR_PROVIDER_LOAD" -> "The requested Nemotron accelerator is unavailable. Select CPU or check the installed Qualcomm runtime."
             "ASR_PROFILE_UNAVAILABLE" -> "Nemotron could not verify GPU execution. Select CPU or retry the accelerator check."
+            "ASR_NATIVE_ADMISSION_BLOCKED" -> "Speech recognition is paused because an earlier native engine could not retire safely. Restart the app before preparing another recognizer."
             "ASR_CANCELLED" -> "Speech recognition was cancelled."
             else -> "${pack.model.title} could not complete recognition (${failure.code}). Check its installed model pack or select another recognizer."
         }
         throw VoiceRecognitionRuntimeException(failure.code, message, failure)
+    }
+
+    private fun retainRetirementFailure(cause: Throwable): VoiceRecognitionRuntimeException {
+        val failure = retirementFailure ?: VoiceRecognitionRuntimeException(
+            "ASR_RETIREMENT_UNCONFIRMED",
+            "Speech recognition could not confirm native cleanup. Its model files remain in use. Restart the app before preparing another recognizer.",
+            cause
+        ).also { retirementFailure = it }
+        // A failed native constructor can leave process-owned state even when
+        // no Java handle was returned. close must still fail so the capture
+        // owner retains this decoder AND its verified model-use lease.
+        failureCode = failure.code
+        return failure
     }
 
     companion object {

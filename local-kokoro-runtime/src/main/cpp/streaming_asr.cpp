@@ -74,6 +74,18 @@ struct Session {
   bool finished = false;
   bool failed = false;
   int chunk_millis = 0;
+  asr_runtime::CheckedRetirement retirement;
+
+  void Retire() {
+    retirement.Run([this] {
+      context.cancelled.store(true);
+      // Retain the recognizer, tensors, binary mappings and libraries until
+      // every dependent QNN handle has confirmed retirement.
+      context.native_owners.Retire();
+      stream.reset();
+      recognizer.reset();
+    });
+  }
 
   ~Session() {
     // ORT can write a profile when a never-executed warm session is destroyed.
@@ -100,6 +112,7 @@ struct Session {
   }
 
   void Reset(const std::string &language) {
+    retirement.RequireActive();
     context.cancelled.store(false);
     context.run_options.UnsetTerminate();
     asr_runtime::Scope scope(context);
@@ -131,15 +144,14 @@ struct Session {
   }
 };
 
-std::mutex registry_mutex;
-std::unordered_map<int64_t, std::shared_ptr<Session>> registry;
-std::atomic<int64_t> next_handle{1};
+asr_runtime::NativeSessionRegistry<Session> &Registry() {
+  // An uncertain free must not later unload its library during static teardown.
+  static auto *registry = new asr_runtime::NativeSessionRegistry<Session>();
+  return *registry;
+}
 
 std::shared_ptr<Session> Lookup(jlong handle) {
-  std::lock_guard<std::mutex> guard(registry_mutex);
-  auto found = registry.find(handle);
-  if (found == registry.end()) throw std::runtime_error("ASR_CLOSED");
-  return found->second;
+  return Registry().Lookup(handle);
 }
 
 jobject Result(JNIEnv *env, Session &session) {
@@ -172,8 +184,11 @@ Java_dev_melo_kokoro_StreamingAsr_nativeCreate(JNIEnv *env, jclass,
     jstring encoder, jstring decoder, jstring joiner, jstring tokens, jstring model_type,
     jstring provider, jstring language, jstring library_dir, jstring work_dir, jint threads, jint chunk_millis,
     jfloat endpoint_silence_seconds) {
+  int64_t handle = 0;
   try {
-    auto session = std::make_shared<Session>();
+    auto admitted = Registry().Create();
+    handle = admitted.first;
+    auto session = std::move(admitted.second);
     auto &context = session->context;
     context.provider = String(env, provider);
     context.library_dir = String(env, library_dir);
@@ -190,7 +205,6 @@ Java_dev_melo_kokoro_StreamingAsr_nativeCreate(JNIEnv *env, jclass,
     const auto work = String(env, work_dir);
     if (work.empty() || work.front() != '/') throw std::runtime_error("ASR_INVALID_ARGUMENT");
     std::filesystem::create_directories(work);
-    const auto handle = next_handle.fetch_add(1);
     context.profile_prefix = work + "/asr-" + std::to_string(handle);
     // These are the metadata of the catalog's pinned multilingual 560 ms
     // float export; other GPU graph shapes need their own verified pack.
@@ -238,10 +252,22 @@ Java_dev_melo_kokoro_StreamingAsr_nativeCreate(JNIEnv *env, jclass,
     session->Reset(String(env, language));
     if (context.provider == "qnn-htp-context") context.discovery = "htp_contexts_loaded;cpu_fallback=0";
     if (context.provider == "cpu") context.discovery = "cpu;profile=not_requested";
-    std::lock_guard<std::mutex> guard(registry_mutex);
-    registry.emplace(handle, std::move(session));
     return handle;
-  } catch (const std::exception &error) { Failure(env, error, "ASR_INITIALIZATION_FAILED"); return 0; }
+  } catch (const std::exception &error) {
+    if (handle != 0) {
+      try {
+        Registry().Retire(handle);
+      } catch (const std::exception &retirement_error) {
+        // Even if initialization left a pending Java exception, its owner must
+        // learn that native retirement is uncertain and retain the model lease.
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        Failure(env, retirement_error, "ASR_RETIREMENT_UNCONFIRMED");
+        return 0;
+      }
+    }
+    Failure(env, error, "ASR_INITIALIZATION_FAILED");
+    return 0;
+  }
 }
 
 extern "C" JNIEXPORT jobject JNICALL
@@ -249,6 +275,7 @@ Java_dev_melo_kokoro_StreamingAsr_nativeAccept(JNIEnv *env, jclass, jlong handle
   try {
     auto session = Lookup(handle);
     std::lock_guard<std::mutex> lock(session->mutex);
+    session->retirement.RequireActive();
     if (!audio || session->finished) throw std::runtime_error("ASR_INVALID_ARGUMENT");
     const auto count = env->GetArrayLength(audio);
     if (count < 0 || count > 2 * kSampleRate || session->accepted_frames + count > kMaximumCaptureFrames)
@@ -271,6 +298,7 @@ Java_dev_melo_kokoro_StreamingAsr_nativeFinish(JNIEnv *env, jclass, jlong handle
   try {
     auto session = Lookup(handle);
     std::lock_guard<std::mutex> lock(session->mutex);
+    session->retirement.RequireActive();
     asr_runtime::Scope scope(session->context);
     asr_runtime::CheckCancellation();
     if (!session->finished) {
@@ -302,6 +330,7 @@ Java_dev_melo_kokoro_StreamingAsr_nativeEvidence(JNIEnv *env, jclass, jlong hand
   try {
     auto session = Lookup(handle);
     std::lock_guard<std::mutex> lock(session->mutex);
+    session->retirement.RequireActive();
     auto &context = session->context;
     bool executed = session->completed_chunks > 0 && session->accepted_frames > 0 &&
         !session->failed && !context.cancelled.load();
@@ -347,15 +376,12 @@ Java_dev_melo_kokoro_StreamingAsr_nativeCancel(JNIEnv *, jclass, jlong handle) {
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_dev_melo_kokoro_StreamingAsr_nativeDelete(JNIEnv *, jclass, jlong handle) {
-  std::shared_ptr<Session> retired;
-  {
-    std::lock_guard<std::mutex> guard(registry_mutex);
-    auto found = registry.find(handle);
-    if (found == registry.end()) return;
-    retired = std::move(found->second);
-    registry.erase(found);
+Java_dev_melo_kokoro_StreamingAsr_nativeDelete(JNIEnv *env, jclass, jlong handle) {
+  try {
+    // Wait for an in-flight invocation before touching its native resources.
+    // Erase the registry owner only after explicit checked retirement succeeds.
+    Registry().Retire(handle);
+  } catch (const std::exception &error) {
+    Failure(env, error, "ASR_RETIREMENT_UNCONFIRMED");
   }
-  retired->context.cancelled.store(true);
-  // The final in-flight JNI holder owns destruction if cancellation races a run.
 }

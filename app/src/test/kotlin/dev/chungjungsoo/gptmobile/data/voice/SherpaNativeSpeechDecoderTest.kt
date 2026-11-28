@@ -5,6 +5,7 @@ import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -156,6 +157,69 @@ class SherpaNativeSpeechDecoderTest {
         assertEquals(1, native.closes)
     }
 
+    @Test fun failedCloseRetainsOwnerAndCannotRetryNativeFreeOrReuse() {
+        val native = FakeNative()
+        val decoder = decoder(native)
+        decoder.start(File("model")) {}
+        native.next = result("hello", listOf("▁hello"), listOf(.1f), frames = 8_000)
+        decoder.accept(FloatArray(640))
+        native.closeFailure = StreamingAsr.Failure("ASR_RETIREMENT_UNCONFIRMED")
+
+        val failure = assertThrows(VoiceRecognitionRuntimeException::class.java) { decoder.close() }
+
+        assertEquals("ASR_RETIREMENT_UNCONFIRMED", failure.code)
+        assertSame(failure, assertThrows(VoiceRecognitionRuntimeException::class.java) { decoder.close() })
+        assertSame(failure, assertThrows(VoiceRecognitionRuntimeException::class.java) { decoder.start(File("model")) {} })
+        decoder.cancel()
+        assertEquals(1, native.closes)
+        assertEquals(0, native.resets)
+        assertEquals(0, native.cancellations)
+        assertEquals("false", decoder.executionEvidence()["recognitionExecutionVerified"])
+        assertEquals("ASR_RETIREMENT_UNCONFIRMED", decoder.executionEvidence()["recognitionFailure"])
+    }
+
+    @Test fun failedConstructionRollbackRemainsUnretiredWithoutAJavaHandle() {
+        val pack = checkNotNull(VoiceRecognitionModelCatalog.pack(VoiceRecognitionModel.NEMOTRON_3_5, VoiceRecognitionCompute.NPU))
+        var creations = 0
+        val decoder = SherpaNativeSpeechDecoder(pack, pack.compute, File(temporary.root, "cache"), 2, { "libraries" }, {
+            creations++
+            throw StreamingAsr.Failure("ASR_RETIREMENT_UNCONFIRMED")
+        })
+
+        val failure = assertThrows(VoiceRecognitionRuntimeException::class.java) { decoder.start(File("model")) {} }
+
+        assertEquals("ASR_RETIREMENT_UNCONFIRMED", failure.code)
+        assertSame(failure, assertThrows(VoiceRecognitionRuntimeException::class.java) { decoder.close() })
+        assertSame(failure, assertThrows(VoiceRecognitionRuntimeException::class.java) { decoder.start(File("model")) {} })
+        assertEquals(1, creations)
+        assertEquals("false", decoder.executionEvidence()["recognitionExecutionVerified"])
+    }
+
+    @Test fun safeInitializationFailureDoesNotInventAnUnretiredNativeOwner() {
+        val pack = checkNotNull(VoiceRecognitionModelCatalog.pack(VoiceRecognitionModel.ZIPFORMER_EN, VoiceRecognitionCompute.CPU))
+        val decoder = SherpaNativeSpeechDecoder(pack, pack.compute, File(temporary.root, "cache"), 2, { "libraries" }, {
+            throw StreamingAsr.Failure("ASR_INITIALIZATION_FAILED")
+        })
+
+        val failure = assertThrows(VoiceRecognitionRuntimeException::class.java) { decoder.start(File("model")) {} }
+
+        assertEquals("ASR_INITIALIZATION_FAILED", failure.code)
+        decoder.close()
+        decoder.close()
+    }
+
+    @Test fun closeLinkageFailureIsUncertainAndDoesNotResurrectTheHandle() {
+        val native = FakeNative().apply { closeFailure = UnsatisfiedLinkError("fixture unavailable") }
+        val decoder = decoder(native)
+        decoder.start(File("model")) {}
+
+        val failure = assertThrows(VoiceRecognitionRuntimeException::class.java) { decoder.close() }
+
+        assertEquals("ASR_RETIREMENT_UNCONFIRMED", failure.code)
+        assertSame(failure, assertThrows(VoiceRecognitionRuntimeException::class.java) { decoder.close() })
+        assertEquals(1, native.closes)
+    }
+
     private fun decoder(
         native: FakeNative,
         pack: VoiceRecognitionModelPack = checkNotNull(VoiceRecognitionModelCatalog.pack(VoiceRecognitionModel.ZIPFORMER_EN, VoiceRecognitionCompute.CPU))
@@ -164,6 +228,7 @@ class SherpaNativeSpeechDecoderTest {
     private class FakeNative : SherpaSpeechNative {
         var next = result("", emptyList(), emptyList(), frames = 0)
         var failure: StreamingAsr.Failure? = null
+        var closeFailure: Throwable? = null
         var accepts = 0
         var finishes = 0
         var resets = 0
@@ -191,6 +256,7 @@ class SherpaNativeSpeechDecoderTest {
         }
         override fun close() {
             closes++
+            closeFailure?.let { throw it }
         }
     }
 

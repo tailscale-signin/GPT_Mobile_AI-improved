@@ -67,6 +67,8 @@ public final class StreamingAsr implements AutoCloseable {
     }
 
     private volatile long handle;
+    private volatile boolean retirementFailed;
+    private final Object cancellationMonitor = new Object();
     public StreamingAsr(String encoder, String decoder, String joiner, String tokens,
                         String modelType, String provider, String language, String nativeLibraryDir,
                         String workDirectory, int threads, int chunkMillis, float endpointSilenceSeconds) {
@@ -82,18 +84,35 @@ public final class StreamingAsr implements AutoCloseable {
     public synchronized Evidence evidence() { return nativeEvidence(checkedHandle()); }
     /** Cancellation must not wait for the inference monitor. */
     public void cancel() {
-        long current = handle;
-        if (current != 0) nativeCancel(current);
+        synchronized (cancellationMonitor) {
+            long current = handle;
+            if (current != 0 && !retirementFailed) nativeCancel(current);
+        }
     }
     @Override public void close() {
+        // Release the cancellation monitor before waiting for inference. No
+        // cancellation call ever takes the inference monitor in the reverse order.
         cancel();
         synchronized (this) {
-            long current = handle;
-            handle = 0;
-            if (current != 0) nativeDelete(current);
+            synchronized (cancellationMonitor) {
+                // Drain existing JNI cancellation holders and exclude new ones
+                // until native retirement and the handle update are complete.
+                if (retirementFailed) throw new Failure("ASR_RETIREMENT_UNCONFIRMED");
+                long current = handle;
+                if (current != 0) {
+                    try {
+                        nativeDelete(current);
+                    } catch (RuntimeException | LinkageError failure) {
+                        retirementFailed = true;
+                        throw failure;
+                    }
+                    handle = 0;
+                }
+            }
         }
     }
     private long checkedHandle() {
+        if (retirementFailed) throw new Failure("ASR_RETIREMENT_UNCONFIRMED");
         if (handle == 0) throw new IllegalStateException("Recognition engine is closed");
         return handle;
     }

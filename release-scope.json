@@ -132,7 +132,8 @@
     "Extend the resumable voice suite after quick Pocket/LiteRT screening with paced recognition fixtures, matched automatic CPU calibration and explicit whole-device thermal/battery evidence boundaries.",
     "Repair the current-head investigation-tracker compilation failure by passing the existing run-owned tracker, and restore complete secret-history fixture inputs while retaining every real scanner control.",
     "Bring the exact translation-picker test controls into view before visibility assertions and touch interaction, retaining installation, selection and microphone callback checks at large font sizes.",
-    "Keep accepted retained speech playing during preference hydration while separately blocking new capture, draft submission and replay preparation until the screen is ready."
+    "Keep accepted retained speech playing during preference hydration while separately blocking new capture, draft submission and replay preparation until the screen is ready.",
+    "Acknowledge recognition retirement only after cancellation holders and checked native resources have drained; preserve model leases and block new native admission when cleanup is unconfirmed."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -1223,7 +1224,14 @@
     "scripts/tests/test_prepare_emulator_ui.py",
     "scripts/tests/test_streaming_asr_inputs.py",
     "docs/repairs/voice-session-readiness-restoration-2026-11-28-task.json",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionReadinessTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionReadinessTest.kt",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_cancellation_fixture.cpp",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_fixture.cpp",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_fixture.h",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_qnn_retirement_test.cpp",
+    "local-kokoro-runtime/src/main/cpp/streaming_asr_retirement.h",
+    "local-kokoro-runtime/src/test/java/dev/melo/kokoro/StreamingAsrCancellationIntegration.java",
+    "docs/repairs/voice-native-retirement-2026-11-28-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

@@ -164,7 +164,27 @@
        // Please see
 --- a/sherpa-onnx/csrc/qnn/qnn-backend.cc
 +++ b/sherpa-onnx/csrc/qnn/qnn-backend.cc
-@@ -30,7 +30,11 @@
+@@ -20,17 +20,31 @@
+ #include "sherpa-onnx/csrc/qnn/macros.h"
+ #include "sherpa-onnx/csrc/qnn/utils.h"
+
++#ifdef GPTMOBILE_ASR_BOUNDARY
++#include "streaming_asr_provider.h"
++#endif
++
+ namespace sherpa_onnx {
+
+ class QnnBackend::Impl {
+  public:
++#ifdef GPTMOBILE_ASR_BOUNDARY
++  explicit Impl(const QnnBackendOptions &opts) : opts_(opts) {}
++
++  void Init(const std::string &backend_lib) {
++#else
+   Impl(const std::string &backend_lib, const QnnBackendOptions &opts)
+       : opts_(opts) {
++#endif
+     bool ok = InitQnnInterface(backend_lib);
      if (!ok) {
        SHERPA_ONNX_LOGE("Failed to init qnn interface from '%s'",
                         backend_lib.c_str());
@@ -176,51 +196,154 @@
      }
 
      InitLog();
-@@ -47,7 +51,11 @@
+@@ -44,6 +58,42 @@
+     is_initialized_ = true;
+   }
+
++#ifdef GPTMOBILE_ASR_BOUNDARY
++  // Destructors never attempt native retirement. Session owns this state until
++  // Retire confirms every dependent free, including initialization rollback.
++  ~Impl() = default;
++
++  void Retire() {
++    retirement_.Run([this] {
++      if (context_handle_) {
++        if (qnn_interface_.contextFree(context_handle_, nullptr) != QNN_SUCCESS)
++          asr_runtime::RetirementUnconfirmed();
++        context_handle_ = nullptr;
++      }
++      if (htp_perf_infra_ && htp_power_config_id_ != 0) {
++        if (htp_perf_infra_->destroyPowerConfigId(htp_power_config_id_) != QNN_SUCCESS)
++          asr_runtime::RetirementUnconfirmed();
++        htp_power_config_id_ = 0;
++      }
++      if (device_handle_) {
++        if (qnn_interface_.deviceFree(device_handle_) != QNN_SUCCESS)
++          asr_runtime::RetirementUnconfirmed();
++        device_handle_ = nullptr;
++      }
++      if (backend_handle_) {
++        if (qnn_interface_.backendFree(backend_handle_) != QNN_SUCCESS)
++          asr_runtime::RetirementUnconfirmed();
++        backend_handle_ = nullptr;
++      }
++      if (log_handle_) {
++        if (qnn_interface_.logFree(log_handle_) != QNN_SUCCESS)
++          asr_runtime::RetirementUnconfirmed();
++        log_handle_ = nullptr;
++      }
++      is_initialized_ = false;
++    });
++  }
++#else
    ~Impl() {
      if (context_handle_) {
        auto ret = qnn_interface_.contextFree(context_handle_, nullptr);
-+#ifdef GPTMOBILE_ASR_BOUNDARY
-+      if (ret != QNN_SUCCESS) SHERPA_ONNX_LOGE("Failed to call contextFree: %d", static_cast<int>(ret));
-+#else
-       SHERPA_ONNX_QNN_CHECK(ret, "Failed to call contextFree");
-+#endif
-     }
-
-     if (htp_perf_infra_ && htp_power_config_id_ != 0) {
-@@ -60,17 +68,29 @@
-
-     if (device_handle_) {
-       auto ret = qnn_interface_.deviceFree(device_handle_);
-+#ifdef GPTMOBILE_ASR_BOUNDARY
-+      if (ret != QNN_SUCCESS) SHERPA_ONNX_LOGE("Failed to call deviceFree: %d", static_cast<int>(ret));
-+#else
-       SHERPA_ONNX_QNN_CHECK(ret, "Failed to call deviceFree");
-+#endif
-     }
-
-     if (backend_handle_) {
-       auto ret = qnn_interface_.backendFree(backend_handle_);
-+#ifdef GPTMOBILE_ASR_BOUNDARY
-+      if (ret != QNN_SUCCESS) SHERPA_ONNX_LOGE("Failed to call backendFree: %d", static_cast<int>(ret));
-+#else
-       SHERPA_ONNX_QNN_CHECK(ret, "Failed to call backendFree");
-+#endif
-     }
-
-     if (log_handle_) {
-       auto ret = qnn_interface_.logFree(log_handle_);
-+#ifdef GPTMOBILE_ASR_BOUNDARY
-+      if (ret != QNN_SUCCESS) SHERPA_ONNX_LOGE("Failed to call logFree: %d", static_cast<int>(ret));
-+#else
-       SHERPA_ONNX_QNN_CHECK(ret, "Failed to call logFree");
-+#endif
+@@ -74,6 +124,8 @@
      }
    }
 
++#endif
++
+   void InitContext() {
+     if (context_handle_) {
+       SHERPA_ONNX_LOGE("context handle is already initialized");
+@@ -82,6 +134,10 @@
+
+     auto ret = qnn_interface_.contextCreate(backend_handle_, device_handle_,
+                                             context_config_, &context_handle_);
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    // An error does not establish ownership/validity of a non-null output.
++    if (ret != QNN_SUCCESS && context_handle_) retirement_.RejectUnconfirmed();
++#endif
+     SHERPA_ONNX_QNN_CHECK(ret, "Failed to call contextCreate");
+   }
+
+@@ -199,18 +255,30 @@
+
+   void InitLog() {
+     auto ret = qnn_interface_.logCreate(LogCallback, log_level_, &log_handle_);
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    // An error does not establish ownership/validity of a non-null output.
++    if (ret != QNN_SUCCESS && log_handle_) retirement_.RejectUnconfirmed();
++#endif
+     SHERPA_ONNX_QNN_CHECK(ret, "Failed to call logCreate");
+   }
+
+   void InitBackend() {
+     auto ret = qnn_interface_.backendCreate(log_handle_, backend_config_,
+                                             &backend_handle_);
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    // An error does not establish ownership/validity of a non-null output.
++    if (ret != QNN_SUCCESS && backend_handle_) retirement_.RejectUnconfirmed();
++#endif
+     SHERPA_ONNX_QNN_CHECK(ret, "Failed to call backendCreate");
+   }
+
+   void InitDevice() {
+     auto ret =
+         qnn_interface_.deviceCreate(log_handle_, nullptr, &device_handle_);
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    // An error does not establish ownership/validity of a non-null output.
++    if (ret != QNN_SUCCESS && device_handle_) retirement_.RejectUnconfirmed();
++#endif
+     SHERPA_ONNX_QNN_CHECK(ret, "Failed to call deviceCreate");
+   }
+
+@@ -244,9 +312,22 @@
+     if (ret != QNN_SUCCESS) {
+       SHERPA_ONNX_LOGE("createPowerConfigId failed: %d",
+                        static_cast<int>(ret));
++#ifdef GPTMOBILE_ASR_BOUNDARY
++      // No contract makes an error output safe to destroy. Retain it and its
++      // parents if nonzero; otherwise roll back only earlier owned handles.
++      if (htp_power_config_id_ != 0) retirement_.RejectUnconfirmed();
++      SHERPA_ONNX_EXIT(-1);
++#else
+       htp_perf_infra_ = nullptr;
+       return;
+-    }
++#endif
++    }
++
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    // Zero is the process-wide power client. Never change global settings if
++    // the backend failed to return a dedicated nonzero client id.
++    if (htp_power_config_id_ == 0) SHERPA_ONNX_EXIT(-1);
++#endif
+
+     QnnHtpPerfInfrastructure_PowerConfig_t dcvs{};
+     dcvs.option = QNN_HTP_PERF_INFRASTRUCTURE_POWER_CONFIGOPTION_DCVS_V3;
+@@ -298,7 +379,10 @@
+   std::unique_ptr<void, decltype(&dlclose)> backend_lib_handle_{nullptr,
+                                                                 &dlclose};
+
+-  QNN_INTERFACE_VER_TYPE qnn_interface_;
++  QNN_INTERFACE_VER_TYPE qnn_interface_{};
++#ifdef GPTMOBILE_ASR_BOUNDARY
++  asr_runtime::CheckedRetirement retirement_;
++#endif
+
+   QnnLog_Level_t log_level_ = QNN_LOG_LEVEL_WARN;
+   // QnnLog_Level_t log_level_ = QNN_LOG_LEVEL_INFO;
+@@ -323,7 +407,14 @@
+
+ QnnBackend::QnnBackend(const std::string &backend_lib,
+                        const QnnBackendOptions &opts)
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    : impl_(std::make_shared<Impl>(opts)) {
++  asr_runtime::RetainNativeOwner(impl_);
++  impl_->Init(backend_lib);
++}
++#else
+     : impl_(std::make_unique<Impl>(backend_lib, opts)) {}
++#endif
+
+ void QnnBackend::InitContext() const { impl_->InitContext(); }
+
 --- a/sherpa-onnx/csrc/qnn/qnn-model.cc
 +++ b/sherpa-onnx/csrc/qnn/qnn-model.cc
-@@ -19,6 +19,11 @@
+@@ -19,23 +19,39 @@
  #include "sherpa-onnx/csrc/qnn/qnn-backend.h"
  #include "sherpa-onnx/csrc/qnn/utils.h"
 
@@ -232,7 +355,12 @@
  namespace sherpa_onnx {
 
  class QnnModel::Impl {
-@@ -28,14 +33,22 @@
+  public:
++#ifdef GPTMOBILE_ASR_BOUNDARY
++  Impl(const QnnBackend *backend, bool debug) : debug_(debug), backend_(backend) {}
++#else
+   Impl(const std::string &model_so, const QnnBackend *backend, bool debug)
+       : debug_(debug), backend_(backend) {
      bool ok = InitModel(model_so);
      if (!ok) {
        SHERPA_ONNX_LOGE("Failed to load '%s'", model_so.c_str());
@@ -255,8 +383,19 @@
      }
 
      InitGraph();
-@@ -48,7 +61,11 @@
+@@ -43,12 +59,22 @@
+     PostInit();
+   }
+
++#endif
++
++#ifdef GPTMOBILE_ASR_BOUNDARY
++  void Init(const std::string &binary_context_file, const std::string &system_lib) {
++#else
+   Impl(const std::string &binary_context_file, const std::string &system_lib,
+        const QnnBackend *backend, BinaryContextTag, bool debug)
        : debug_(debug), backend_(backend) {
++#endif
      bool ok = LoadSystemLib(binary_context_file, system_lib);
      if (!ok) {
 +#ifdef GPTMOBILE_ASR_BOUNDARY
@@ -267,21 +406,146 @@
      }
 
      PostInit();
-@@ -117,9 +134,12 @@
+@@ -117,14 +143,28 @@
            system_interface_providers[i]->QNN_SYSTEM_INTERFACE_VER_NAME;
      }
 
 -    // read file into a buffer
 +#ifdef GPTMOBILE_ASR_BOUNDARY
-+    asr_runtime::MappedContextBinary buffer(binary_context_file);
++    context_binary_ = std::make_unique<asr_runtime::MappedContextBinary>(binary_context_file);
++    auto &buffer = *context_binary_;
 +#else
      auto char_buffer = ReadFile(binary_context_file);
      std::vector<uint8_t> buffer(char_buffer.begin(), char_buffer.end());
+-
++#endif
++
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    auto &sys_ctx_handle = system_context_;
++#else
+     QnnSystemContext_Handle_t sys_ctx_handle = nullptr;
++#endif
+     if (qnn_system_interface_.systemContextCreate(&sys_ctx_handle) !=
+         QNN_SUCCESS) {
+       SHERPA_ONNX_LOGE("Could not create system handle.");
++#ifdef GPTMOBILE_ASR_BOUNDARY
++      if (sys_ctx_handle) {
++        creation_unconfirmed_ = true;
++        asr_runtime::RetirementUnconfirmed();
++      }
++#endif
+       return false;
+     }
+
+@@ -139,25 +179,45 @@
+           "Failed to get context binary info from '%s'. ret code is %d",
+           binary_context_file.c_str(), static_cast<int32_t>(ret));
+
++#ifdef GPTMOBILE_ASR_BOUNDARY
++      Retire();
++#else
+       qnn_system_interface_.systemContextFree(sys_ctx_handle);
++#endif
+       return false;
+     }
+
+     const GraphConfigInfo **graph_configs_info = nullptr;
+
+     uint32_t graph_configs_info_count = 0;
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    auto &graphs_info = graphs_info_;
++    auto &graphs_count = graphs_count_;
++#else
+     GraphInfo **graphs_info = nullptr;
+     uint32_t graphs_count = 0;
 +#endif
 
-     QnnSystemContext_Handle_t sys_ctx_handle = nullptr;
-     if (qnn_system_interface_.systemContextCreate(&sys_ctx_handle) !=
-@@ -485,10 +505,16 @@
+     if (!CopyMetadataToGraphsInfo(binary_info, graphs_info, graphs_count)) {
+       SHERPA_ONNX_LOGE("Failed to call CopyMetadataToGraphsInfo");
+
++#ifdef GPTMOBILE_ASR_BOUNDARY
++      Retire();
++#else
+       qnn_system_interface_.systemContextFree(sys_ctx_handle);
+-      return false;
+-    }
+-
++#endif
++      return false;
++    }
++
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    Retire();
++#else
+     qnn_system_interface_.systemContextFree(sys_ctx_handle);
+-
++#endif
++
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    auto free_graphs_info = [this] { FreeGraphsInfo(); };
++#else
+     auto free_graphs_info = [&graphs_info, &graphs_count] {
+       for (uint32_t i = 0; i < graphs_count; ++i) {
+         for (uint32_t k = 0; k < graphs_info[i]->num_input_tensors; ++k) {
+@@ -177,17 +237,29 @@
+       free(graphs_info[0]);
+       free(graphs_info);
+     };
+-
++#endif
++
++    if (graphs_count == 0 || !graphs_info) return false;
+     if (graphs_count > 1) {
+       SHERPA_ONNX_LOGE("Only the first graph is used");
+     }
+
+     Qnn_ContextHandle_t context_handle = nullptr;
+
+-    if (backend_->QnnInterface().contextCreateFromBinary(
+-            backend_->BackendHandle(), backend_->DeviceHandle(),
+-            context_config_, static_cast<void *>(buffer.data()), buffer.size(),
+-            &context_handle, nullptr) != QNN_SUCCESS) {
++    auto context_result = backend_->QnnInterface().contextCreateFromBinary(
++        backend_->BackendHandle(), backend_->DeviceHandle(), context_config_,
++        static_cast<void *>(buffer.data()), buffer.size(), &context_handle, nullptr);
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    // Capture an output handle even when initialization reports failure.
++    backend_->InitContext(context_handle);
++#endif
++    if (context_result != QNN_SUCCESS) {
++#ifdef GPTMOBILE_ASR_BOUNDARY
++      if (context_handle) {
++        creation_unconfirmed_ = true;
++        asr_runtime::RetirementUnconfirmed();
++      }
++#endif
+       free_graphs_info();
+       SHERPA_ONNX_LOGE("Could not create context from binary.");
+       return false;
+@@ -213,7 +285,22 @@
+     return true;
+   }
+
++#ifdef GPTMOBILE_ASR_BOUNDARY
++  ~Impl() { FreeGraphsInfo(); }
++
++  void Retire() {
++    if (creation_unconfirmed_) asr_runtime::RetirementUnconfirmed();
++    metadata_retirement_.Run([this] {
++      if (system_context_) {
++        if (qnn_system_interface_.systemContextFree(system_context_) != QNN_SUCCESS)
++          asr_runtime::RetirementUnconfirmed();
++        system_context_ = nullptr;
++      }
++    });
++  }
++#else
+   ~Impl() = default;
++#endif
+
+   bool SaveBinaryContext(const std::string &filename) {
+     auto qnn_interface = backend_->QnnInterface();
+@@ -485,10 +572,16 @@
        output_tensors_raw.push_back(*p);
      }
 
@@ -298,6 +562,78 @@
 
      return true;
    }
+@@ -496,6 +589,25 @@
+   bool IsInitialized() const { return is_initialized_; }
+
+  private:
++#ifdef GPTMOBILE_ASR_BOUNDARY
++  void FreeGraphsInfo() {
++    if (!graphs_info_) return;
++    for (uint32_t i = 0; i < graphs_count_; ++i) {
++      for (uint32_t k = 0; k < graphs_info_[i]->num_input_tensors; ++k)
++        FreeTensor(&graphs_info_[i]->input_tensors[k]);
++      for (uint32_t k = 0; k < graphs_info_[i]->num_output_tensors; ++k)
++        FreeTensor(&graphs_info_[i]->output_tensors[k]);
++      free(graphs_info_[i]->input_tensors);
++      free(graphs_info_[i]->output_tensors);
++      free(graphs_info_[i]->graph_name);
++    }
++    if (graphs_count_ != 0) free(graphs_info_[0]);
++    free(graphs_info_);
++    graphs_info_ = nullptr;
++    graphs_count_ = 0;
++  }
++#endif
++
+   void PostInit() {
+     AllocateBuffer();
+     SetupPointers();
+@@ -668,7 +780,15 @@
+   std::unique_ptr<void, decltype(&dlclose)> system_lib_handle_{nullptr,
+                                                                &dlclose};
+
+-  QNN_SYSTEM_INTERFACE_VER_TYPE qnn_system_interface_;
++  QNN_SYSTEM_INTERFACE_VER_TYPE qnn_system_interface_{};
++#ifdef GPTMOBILE_ASR_BOUNDARY
++  asr_runtime::CheckedRetirement metadata_retirement_;
++  bool creation_unconfirmed_ = false;
++  QnnSystemContext_Handle_t system_context_ = nullptr;
++  std::unique_ptr<asr_runtime::MappedContextBinary> context_binary_;
++  GraphInfo **graphs_info_ = nullptr;
++  uint32_t graphs_count_ = 0;
++#endif
+
+   ComposeGraphsFnHandleType compose_graphs_fn_handle_ = nullptr;
+   FreeGraphInfoFnHandleType free_graph_info_fn_handle_ = nullptr;
+@@ -694,13 +814,28 @@
+
+ QnnModel::QnnModel(const std::string &model_so, const QnnBackend *backend,
+                    bool debug)
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    {
++  // This boundary accepts pinned context binaries only. Never compile/load a
++  // model SO if a leased binary disappeared after the initial file check.
++  throw std::runtime_error("ASR_CONTEXT_LOAD");
++}
++#else
+     : impl_(std::make_unique<Impl>(model_so, backend, debug)) {}
++#endif
+
+ QnnModel::QnnModel(const std::string &binary_context_file,
+                    const std::string &system_lib, const QnnBackend *backend,
+                    BinaryContextTag tag, bool debug)
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    : impl_(std::make_shared<Impl>(backend, debug)) {
++  asr_runtime::RetainNativeOwner(impl_);
++  impl_->Init(binary_context_file, system_lib);
++}
++#else
+     : impl_(std::make_unique<Impl>(binary_context_file, system_lib, backend,
+                                    tag, debug)) {}  // NOLINT
++#endif
+
+ bool QnnModel::SaveBinaryContext(const std::string &filename) const {
+   return impl_->SaveBinaryContext(filename);
 --- a/sherpa-onnx/csrc/qnn/online-nemo-transducer-model-qnn.cc
 +++ b/sherpa-onnx/csrc/qnn/online-nemo-transducer-model-qnn.cc
 @@ -42,6 +42,10 @@
@@ -341,6 +677,19 @@
 
      return joiner_->GetOutputTensorData(joiner_output_name_);
    }
+@@ -416,6 +429,12 @@
+                      const std::string &context_binary, const char *name,
+                      QnnBackend *backend,
+                      std::unique_ptr<QnnModel> *model) const {
++#ifdef GPTMOBILE_ASR_BOUNDARY
++    if (context_binary.empty() || !FileExists(context_binary))
++      throw std::runtime_error("ASR_CONTEXT_LOAD");
++    InitModelFromContextBinary(context_binary, backend, model);
++    return;
++#endif
+     if (context_binary.empty()) {
+       if (config_.debug) {
+         SHERPA_ONNX_LOGE(
 --- a/sherpa-onnx/csrc/qnn/online-recognizer-nemo-transducer-qnn-impl.h
 +++ b/sherpa-onnx/csrc/qnn/online-recognizer-nemo-transducer-qnn-impl.h
 @@ -293,6 +293,11 @@
@@ -355,3 +704,31 @@
    }
 
    void InitResultTemplate() {
+--- a/sherpa-onnx/csrc/qnn/qnn-backend.h
++++ b/sherpa-onnx/csrc/qnn/qnn-backend.h
+@@ -36,7 +36,11 @@
+
+  private:
+   class Impl;
++#ifdef GPTMOBILE_ASR_BOUNDARY
++  std::shared_ptr<Impl> impl_;
++#else
+   std::unique_ptr<Impl> impl_;
++#endif
+ };
+
+ }  // namespace sherpa_onnx
+--- a/sherpa-onnx/csrc/qnn/qnn-model.h
++++ b/sherpa-onnx/csrc/qnn/qnn-model.h
+@@ -49,7 +49,11 @@
+
+  private:
+   class Impl;
++#ifdef GPTMOBILE_ASR_BOUNDARY
++  std::shared_ptr<Impl> impl_;
++#else
+   std::unique_ptr<Impl> impl_;
++#endif
+ };
+
+ }  // namespace sherpa_onnx

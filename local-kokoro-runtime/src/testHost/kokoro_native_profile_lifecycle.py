@@ -195,6 +195,7 @@ def main():
     main_java = test_host.parent / "main/java/dev/melo/kokoro/TimedKokoro.java"
     asr_java = main_java.with_name("StreamingAsr.java")
     asr_test_java = test_java.with_name("StreamingAsrNativeIntegration.java")
+    asr_cancellation_java = test_java.with_name("StreamingAsrCancellationIntegration.java")
     asr_fixture_manifest = test_host / "streaming_asr_fixtures.json"
     asr_fixtures = json.loads(asr_fixture_manifest.read_text())["fixtures"]
     asr_input_pins = {}
@@ -304,8 +305,11 @@ def main():
     classes = args.output / "classes"
     classes.mkdir()
     assert run("javac", [args.jdk / "bin/javac", "-d", classes, main_java, main_java.with_name("KokoroFrontend.java"), test_java, context_java, prepared_java,
-                        asr_java, asr_test_java]) == 0
+                        asr_java, asr_test_java, asr_cancellation_java]) == 0
     results = {}
+    results["asr_cancellation_monitor"] = run("asr_cancellation_monitor", [args.jdk / "bin/java", "-Xcheck:jni",
+        "-Djava.library.path=" + str(build / "asr-cancellation"), "-cp", classes,
+        "dev.melo.kokoro.StreamingAsrCancellationIntegration", args.output / "asr_cancellation_monitor.json"], timeout=30)
     for case in ["unqualified_cancel", "unqualified_failure", "qualified_cancel"]:
         results[case] = run(case, [args.jdk / "bin/java", "-Xcheck:jni", "-Djava.library.path=" + str(build),
                                   "-cp", classes, "dev.melo.kokoro.KokoroNativeProfileLifecycleIntegration",
@@ -339,7 +343,7 @@ def main():
     source_inputs = {str(p): digest(p) for p in sorted(args.native_source.rglob("*")) if p.is_file()}
     source_inputs.update({str(p): digest(p) for p in [Path(__file__), MEMORY_PROBE, test_java, context_java, prepared_java, main_java, main_java.with_name("KokoroFrontend.java"),
                                                     test_host / "kokoro_profile_fault.h", test_host / "kokoro_profile_fault.cpp",
-                                                    asr_java, asr_test_java, asr_fixture_manifest]})
+                                                    asr_java, asr_test_java, asr_cancellation_java, asr_fixture_manifest]})
     receipt = {
         "scope": "actual_native_model_sherpa_jni_with_explicit_host_emulator_and_fault_ports",
         "physical_device_qualified": False,
@@ -357,6 +361,7 @@ def main():
         "asr_execution_scope": "CPU_HOST_PRODUCTION_JNI_ONLY_NO_GPU_NPU_OR_PHYSICAL_QUALIFICATION",
         "built_jni_sha256": digest(build / "libtimed_kokoro.so"),
         "built_adapter_sha256": digest(build / "libkokoro_qnn_adapter.so"),
+        "asr_cancellation_fixture_sha256": digest(build / "asr-cancellation/libtimed_kokoro.so"),
     }
     (args.output / "verification.json").write_text(json.dumps(receipt, indent=2) + "\n")
     raise SystemExit(0 if all(code == 0 for code in results.values()) else 1)

@@ -123,5 +123,25 @@ if(NOT ANDROID)
         target_include_directories(kokoro_qnn_adapter_test PRIVATE ${ORT_INCLUDE_DIR})
         target_link_libraries(kokoro_qnn_adapter_test PRIVATE ${CMAKE_DL_LIBS})
         add_test(NAME speech_provider_abi_ownership COMMAND kokoro_qnn_adapter_test)
+        # Exercise the actual pinned/patched QNN classes with deterministic C
+        # API failures. This fixture is host-only and never enters an APK.
+        set(asr_test_host "${CMAKE_CURRENT_SOURCE_DIR}")
+        add_library(streaming_asr_qnn_fixture SHARED "${asr_test_host}/streaming_asr_qnn_fixture.cpp")
+        target_include_directories(streaming_asr_qnn_fixture PRIVATE
+            $<TARGET_PROPERTY:sherpa-onnx-core,INCLUDE_DIRECTORIES>)
+        add_executable(streaming_asr_qnn_retirement_test "${asr_test_host}/streaming_asr_qnn_retirement_test.cpp")
+        target_compile_definitions(streaming_asr_qnn_retirement_test PRIVATE GPTMOBILE_ASR_BOUNDARY=1)
+        target_include_directories(streaming_asr_qnn_retirement_test PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}" "${sherpa_SOURCE_DIR}" "${ORT_INCLUDE_DIR}"
+            $<TARGET_PROPERTY:sherpa-onnx-core,INCLUDE_DIRECTORIES>)
+        target_link_libraries(streaming_asr_qnn_retirement_test PRIVATE sherpa-onnx-core ${ORT_LIBRARY} ${CMAKE_DL_LIBS})
+        add_test(NAME speech_asr_checked_qnn_retirement
+            COMMAND streaming_asr_qnn_retirement_test $<TARGET_FILE:streaming_asr_qnn_fixture>)
+        set_tests_properties(speech_asr_checked_qnn_retirement PROPERTIES TIMEOUT 30)
+        add_library(streaming_asr_cancellation_fixture SHARED streaming_asr_cancellation_fixture.cpp)
+        target_include_directories(streaming_asr_cancellation_fixture PRIVATE ${JNI_INCLUDE_DIRS})
+        target_link_libraries(streaming_asr_cancellation_fixture PRIVATE Threads::Threads)
+        set_target_properties(streaming_asr_cancellation_fixture PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/asr-cancellation" OUTPUT_NAME timed_kokoro)
     endif()
 endif()

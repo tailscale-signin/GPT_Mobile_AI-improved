@@ -70,6 +70,25 @@ internal fun fullVoiceBenchPlan(threads: Int, rate: Float, deviceThreads: Int): 
     fun addCase(base: VoiceBenchStage, name: String, spec: VoiceBenchStage) {
         add(spec.copy(label = "${base.label} · $name"))
     }
+    // Screen installed engines before expensive accelerator compilation and sustained playback.
+    // Pocket is intentionally early so a stopped campaign still compares the lightweight engines.
+    val screeningOrder = configs.sortedBy { base ->
+        when (base.engine) {
+            VoiceSpeechBenchmarkEngine.POCKET -> 0
+            VoiceSpeechBenchmarkEngine.POCKET_MULTILINGUAL -> 1
+            VoiceSpeechBenchmarkEngine.NATIVE_KOKORO -> 2
+            VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO -> 3
+            else -> 4
+        }
+    }
+    screeningOrder.forEach { base ->
+        val routes = when (base.engine) {
+            VoiceSpeechBenchmarkEngine.NATIVE_KOKORO -> listOf(VoiceSpeechBackend.CPU)
+            VoiceSpeechBenchmarkEngine.MEDIAPIPE_KOKORO -> listOf(VoiceSpeechBackend.LITERT_KOKORO_GPU, VoiceSpeechBackend.LITERT_KOKORO_CPU)
+            else -> base.backends
+        }
+        addCase(base, "quick synthesis screening", base.copy(backends = routes, mode = VoiceSpeechBenchmarkMode.QUICK))
+    }
     KokoroModelVariant.entries.forEach { variant -> add(probe("Auto CPU thread calibration · ${variant.displayName}", VoiceBenchProbe.CPU_CALIBRATION).copy(variant = variant)) }
     configs.forEach { addCase(it, "first audio and warm synthesis", it) }
     SpeechLanguages.synthesis.forEach { add(probe("Speech, dictionary and word cues · ${it.tag}", VoiceBenchProbe.LANGUAGE, it.tag)) }
@@ -135,10 +154,24 @@ internal data class VoiceBenchManifest(
     val state: String = "RUNNING",
     val results: List<VoiceBenchResult>,
     val finishedAtMillis: Long? = null,
+    val continuationSignature: String? = null,
+    val resumedFromRunId: String? = null,
+    val reusedStageIndices: List<Int> = emptyList(),
     val scope: String = "On-device, fixed local fixtures. Historical live-session timings are a separate observation window.",
     val unmeasured: List<String> = listOf("Human pronunciation and listening quality", "Physical speaker-to-ear latency", "Provider/network response time", "Real conversation navigation and lock-screen playback", "Accelerator occupancy and kernel dispatch where the SDK exposes no counters")
 ) {
     val completed: Int get() = results.count { it.status !in setOf(VoiceBenchStatus.PENDING, VoiceBenchStatus.RUNNING) }
+    val hasUnfinishedStages: Boolean get() = results.any { it.status in setOf(VoiceBenchStatus.PENDING, VoiceBenchStatus.RUNNING, VoiceBenchStatus.INTERRUPTED) }
+
+    fun canContinue(signature: String, build: Int, commit: String, api: Int, rows: List<VoiceBenchResult>): Boolean =
+        state in setOf("CANCELLED", "INTERRUPTED", "THERMAL_LIMIT") && hasUnfinishedStages &&
+            continuationSignature == signature && this.build == build && this.commit == commit && androidApi == api &&
+            results.map { it.label } == rows.map { it.label }
+
+    fun reusableStages(rows: List<VoiceBenchResult>): List<Int> = results.indices.filter { index ->
+        rows[index].status == VoiceBenchStatus.PENDING && results[index].status in
+            setOf(VoiceBenchStatus.MEASURED, VoiceBenchStatus.PARTIAL, VoiceBenchStatus.FAILED)
+    }
     fun update(index: Int, result: VoiceBenchResult) = copy(results = results.toMutableList().also { it[index] = result })
     fun stopped(reason: String, now: Long? = null) = copy(
         state = reason,

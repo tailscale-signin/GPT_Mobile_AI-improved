@@ -24,7 +24,7 @@
     "Concurrent branch reconciliation, exact-commit checks, main validation and release verification",
     "Pocket caption source mapping, tempo and presentation synchronization; actual audio-derived timing for routes without SDK word timestamps"
   ],
-  "status": "CI_DEPENDENCY_METADATA_CORRECTION",
+  "status": "PUBLIC_DECLARATION_CORRECTION_REQUIRES_EXACT_HEAD_CI",
   "validation": [
     {
       "scope": "native cache contracts",
@@ -141,13 +141,14 @@
     "draftRequiredBeforeMerge": true,
     "mergeRequiresGreenExactHead": true,
     "releaseRequiresGreenMain": true,
-    "state": "DRAFT_PR_PUSHED",
+    "state": "READY_PR_CI",
     "transport": "GitHub Git Data API with expected-head non-forced ref update; preserve all concurrent branch commits.",
-    "implementationCommit": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748"
+    "implementationCommit": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
+    "dependencyCorrectionCommit": "e28b5df8bf92657284dff8d65bf8b5ed747285e6"
   },
   "remaining": [
-    "Final combined source/reference validation and expected-head draft branch update",
-    "Exact-head full PR CI and ready transition",
+    "Publish the verified public-declaration scan correction with expected-head protection",
+    "Exact-head full PR CI",
     "Protected merge after green and fresh main validation",
     "Signed Android 0.9.66.19 build 153 and Gateway 18.1.6 publication verification"
   ],
@@ -171,9 +172,33 @@
       "previousHead": "90865091851416a53e1c1c700300dad011bf92a5",
       "filesIntegrated": 26,
       "scope": "GitHub conversation restoration, integration-finalization evidence, typed diagnostic limit preservation and separate early Android regression artifacts; full qualification gates retained."
+    },
+    {
+      "observedHead": "74ba873cad202e7a99d5fa0681fc75a75b334614",
+      "previousHead": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+      "filesIntegrated": 16,
+      "scope": "Saved-room identity/privacy/retry and caption watermark end-bound correction; actual caption queue, revision, tempo and synchronization regressions independently passed 39 cases. Earlier 77-case receipt remains historical."
+    },
+    {
+      "observedHead": "1b133fb902015a3cad77a20cd372c294bc3ebe8d",
+      "previousHead": "74ba873cad202e7a99d5fa0681fc75a75b334614",
+      "filesIntegrated": 55,
+      "scope": "Voice microphone presentation, one-shot entry, admitted capture feedback and completed-reply listening; independent static review found no additional issue. Full Android gates retained, release targets unchanged."
+    },
+    {
+      "observedHead": "5098014b93b75e391cf56cafef8fdaeb148b0df2",
+      "previousHead": "1b133fb902015a3cad77a20cd372c294bc3ebe8d",
+      "filesIntegrated": 3,
+      "scope": "Remove one terminal empty line from each of three microphone JUnit text logs to satisfy diagnostic diff whitespace preflight; preserve test counts, source bindings and original bytes in parent history. No production or test source changed."
+    },
+    {
+      "observedHead": "bcca87eecbbda4993aad0d2a1e3bc80d98437490",
+      "previousHead": "5098014b93b75e391cf56cafef8fdaeb148b0df2",
+      "filesIntegrated": 36,
+      "scope": "Retain unknown Combined append completion as application-owned reconciliation evidence, forbid automatic replay, and add source/report regressions and action-based diagnostic dispositions; preserve all Pocket changes and full CI gates."
     }
   ],
-  "currentParent": "afbd5c65483e68ded391f15d31ac7ec87d9f7d3d",
+  "currentParent": "bcca87eecbbda4993aad0d2a1e3bc80d98437490",
   "hostValidationScope": "Focused receipts bind exact source hashes at execution. Later changes remain explicit; a host subset is not full Android, physical hardware, or acoustic qualification.",
   "ciCorrection": {
     "failedHead": "fc0f9c62dfb9e86b36c2647d39cb5040c12b1748",
@@ -182,5 +207,21 @@
     "receipt": "docs/repairs/coroutines-guava-module-verification-2026-11-28.json",
     "portableCoreCompile": "PASSED",
     "fullAndroid": "REQUIRES_NEW_EXACT_HEAD_CI"
+  },
+  "ciHistoryCorrection": {
+    "failedHead": "e28b5df8bf92657284dff8d65bf8b5ed747285e6",
+    "run": 46109771948,
+    "job": 140872122812,
+    "cause": "Six independently verified public integrity/revision declarations matched generic-api-key; each appeared in the implementation and synthetic merge history.",
+    "change": "Exact path, complete declaration and fixed value exceptions only; preserve all existing scanner and history-integrity controls.",
+    "receipt": "docs/repairs/pocket-public-declaration-scan-2026-11-28.json",
+    "fullHistoryAndAndroid": "REQUIRES_NEW_EXACT_HEAD_CI",
+    "localControls": {
+      "passed": 160,
+      "preserved": 112,
+      "added": 48
+    },
+    "newHistorySlice": "ZERO_FINDINGS; bounded main-base to parent history only",
+    "ownedFileSnapshot": "ZERO_FINDINGS; final three scanner-policy/fixture/receipt files"
   }
 }

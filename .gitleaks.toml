@@ -119,3 +119,51 @@ condition = "AND"
 paths = ['''^scripts/tests/fixtures/github-routing-pr-2568\.json$''']
 regexTarget = "line"
 regexes = ['''^\s*"key": "(6a6bd68782278399629870a5ae6b2cf801330b549f28ea897502996308a9a18c|c9038b866084f5176635e2d8868d5025fc07659b06edc1dd76b81af4d3dd7e16)",\s*$''']
+
+# Exact public Hugging Face tokenizer revision, verified by publisher identity and pinned model bytes.
+# Other values, fields, paths, surrounding content and adjacent credentials still scan.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''^app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog\.kt$''']
+regexTarget = "line"
+regexes = ['''^\s*const val TOKENIZER_REVISION = "d29db7978e464fb90cb3359ee0c69a273b9142cc"\s*$''']
+
+# Exact historical tokenizer source digest, reproduced from the reviewed public source bytes.
+# Other values, fields, paths, surrounding content and adjacent credentials still scan.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''^docs/audits/pocket-caption-alignment\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizer\.kt": "557e169710ab0410c39eb69824a1b7da7d6524187acd9b31b0e5d20f0395f9d4",\s*$''']
+
+# Exact historical tokenizer test digest, reproduced from the reviewed public test bytes.
+# Other values, fields, paths, surrounding content and adjacent credentials still scan.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''^docs/audits/pocket-caption-alignment\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizerTest\.kt": "cddc4bdbb0bf73528450094fd9947316b5d5f05d20dda9e0a3c5869a288ae695",\s*$''']
+
+# Exact historical LiteRT classes.jar digest, verified against the pinned Google publisher AAR.
+# Other values, fields, paths, surrounding content and adjacent credentials still scan.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''^docs/audits/pocket-caption-alignment\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"/workspace/scratch/d6788699ebc6/pocket-research/litert-api-2\.4\.1\.jar": "c3853a07330b1be8fb62ed880573e08567b827b764d714360d2e1c1c62249088",\s*$''']
+
+# Exact historical residency-source extract digest, reproduced from the production declaration.
+# Other values, fields, paths, surrounding content and adjacent credentials still scan.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''^docs/repairs/pocket-diagnostics-ci-review-2026-11-28\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"modelKey": "dc6e8f08a052df4f0cd2593187f5843a8d6b140e8cc2ddf23e00e6ab665c0375",\s*$''']
+
+# Exact historical Android smoke script digest, reproduced from the reviewed script bytes.
+# Other values, fields, paths, surrounding content and adjacent credentials still scan.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''^docs/repairs/pocket-caption-validation-2026-11-28\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"scripts/run_mediapipe_android_smoke\.sh": "83359303d3a9118d2c7490c750081748fd6136742cb3f3cb120fc93d88e8d8c5",\s*$''']

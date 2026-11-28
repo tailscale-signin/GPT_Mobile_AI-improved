@@ -45,6 +45,23 @@ WAVEFORM_EVIDENCE_PATH = "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/s
 ROUTING_FIXTURE_PATH = "scripts/tests/fixtures/github-routing-pr-2568.json"
 MODEL_PACK_PATH = "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt"
 HISTORY_OPTIONS = "--all --full-history --diff-merges=first-parent --root"
+POCKET_CATALOG_PATH = "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledSpeechCatalog.kt"
+POCKET_ALIGNMENT_EVIDENCE_PATH = "docs/audits/pocket-caption-alignment.json"
+# Values remain in their original declarations and the fixed scanner policy.
+# The repair receipt independently verifies their public source/artifact bytes.
+POCKET_PUBLIC_DECLARATIONS = (
+    ("pocket_public_revision", POCKET_CATALOG_PATH, "TOKENIZER_REVISION", "kotlin"),
+    ("pocket_source_digest", POCKET_ALIGNMENT_EVIDENCE_PATH,
+     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizer.kt", "json"),
+    ("pocket_test_digest", POCKET_ALIGNMENT_EVIDENCE_PATH,
+     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/PocketCompiledTokenizerTest.kt", "json"),
+    ("pocket_runtime_digest", POCKET_ALIGNMENT_EVIDENCE_PATH,
+     "/workspace/scratch/d6788699ebc6/pocket-research/litert-api-2.4.1.jar", "json"),
+    ("pocket_residency_digest", "docs/repairs/pocket-diagnostics-ci-review-2026-11-28.json",
+     "modelKey", "json"),
+    ("pocket_smoke_digest", "docs/repairs/pocket-caption-validation-2026-11-28.json",
+     "scripts/run_mediapipe_android_smoke.sh", "json"),
+)
 
 
 def model_digest():
@@ -142,6 +159,34 @@ def exact_declaration_cases(name, path, field, digest, alternate_digest):
         (name + "_secret_before", path, neighboring_key + "\n" + exact, 1),
         (name + "_secret_after", path, exact + "\n" + neighboring_key, 1, 3),
     ]
+
+
+def pocket_declaration_cases(alternate_digest):
+    cases = []
+    for name, path, field, syntax in POCKET_PUBLIC_DECLARATIONS:
+        if syntax == "kotlin":
+            pattern = r'[ \t]*const val ' + re.escape(field) + r' = "([0-9a-f]{40})"[ \t]*'
+        else:
+            pattern = r'[ \t]*"' + re.escape(field) + r'": "([0-9a-f]{64})",[ \t]*'
+        declarations = [(line, match) for line in (ROOT / path).read_text(encoding="utf-8").splitlines()
+                        if (match := re.fullmatch(pattern, line))]
+        if len(declarations) != 1:
+            raise ValueError("pocket_public_declaration_contract")
+        exact, match = declarations[0]
+        digest = match.group(1)
+        alternate = exact.replace(digest, alternate_digest[:len(digest)], 1)
+        neighboring_key = '  "apiKey": "' + alternate_digest + '",'
+        cases.extend([
+            (name + "_exact", path, exact, 0),
+            (name + "_different_value", path, alternate, 1),
+            (name + "_different_path", path + ".other", exact, 1),
+            (name + "_different_field", path, exact.replace(field, "other_api_key", 1), 1),
+            (name + "_prefix_content", path, '"extra": true, ' + exact.lstrip(), 1),
+            (name + "_trailing_content", path, exact + ' "extra": true,', 1),
+            (name + "_secret_before", path, neighboring_key + "\n" + exact, 1),
+            (name + "_secret_after", path, exact + "\n" + neighboring_key, 1, 3),
+        ])
+    return cases
 
 
 def immutable_outer_evidence_line():
@@ -301,6 +346,7 @@ def main():
             cases.extend(exact_declaration_cases(
                 f"routing_requirement_{index}", ROUTING_FIXTURE_PATH, "key", digest, alternate_digest))
         cases.extend(outer_evidence_cases(alternate_digest))
+        cases.extend(pocket_declaration_cases(alternate_digest))
         with tempfile.TemporaryDirectory(prefix="gitleaks-model-pin-") as temporary:
             parent = Path(temporary)
             for case in cases:

@@ -50,3 +50,28 @@
 -keep interface dev.chungjungsoo.gptmobile.data.voice.VoicePlaybackMeasurementObserver { *; }
 -keep interface dev.chungjungsoo.gptmobile.data.voice.LocalVoiceAssetSource { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.LocalVoiceAssetStream { *; }
+
+# The separately compiled runner still calls AndroidX tracing after app R8.
+-keep class androidx.tracing.Trace { *; }
+
+# Native memory tests call constructors, copy/default bridges and generated
+# ObjectBox APIs that whole-program app optimization can otherwise erase.
+-keep class dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection { *; }
+-keep class dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext { *; }
+-keep class dev.chungjungsoo.gptmobile.data.github.GitHubTaskContextPreparation$Companion { *; }
+-keepclassmembers class dev.chungjungsoo.gptmobile.data.github.GitHubTaskContextPreparation {
+    public static final dev.chungjungsoo.gptmobile.data.github.GitHubTaskContextPreparation$Companion Companion;
+}
+-keep class dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeDocument { *; }
+-keep class dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeChunk { *; }
+-keep class dev.chungjungsoo.gptmobile.data.memory.MyObjectBox { *; }
+-keep class io.objectbox.Box { *; }
+-keep class io.objectbox.BoxStore { *; }
+-keep class io.objectbox.BoxStoreBuilder { *; }
+
+# Speech JNI tests select real routes/voices through these app APIs. Keep the
+# enum entries, getters and object instance dispatch used by the separate APK.
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkResultKt { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEngine { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechVoices { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.SpeechLanguage { *; }

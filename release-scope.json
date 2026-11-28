@@ -144,7 +144,7 @@
     "Keep the pinned sentencepiece dependency static through its legacy CMake option boundary so Android streaming recognition links both required APIs on arm64-v8a and x86_64, without changing caller configuration.",
     "Preserve accepted single-language recognition intent and captured offline privacy through delayed support checks; reject changed automatic-translation selections and retain current online-consent and room-identity checks.",
     "Keep the complete voice-session saved and transient state in smaller Compose initializer functions while preserving state identity, keys and microphone/translation behavior.",
-    "Keep the caption-verification types used by the minified speech-test boundary and align the installed-model test label with the production status.",
+    "Keep the exact shared runner, database, caption and speech APIs used by the separately compiled minified test APK; preserve constructor/default bridges and instance dispatch, and align the installed-model test label with production status.",
     "Restore normal release R8 optimization with all native and reflection keep rules retained; require the unchanged APK-size limits and full optimized device gates before publication."
   ],
   "limitations": [

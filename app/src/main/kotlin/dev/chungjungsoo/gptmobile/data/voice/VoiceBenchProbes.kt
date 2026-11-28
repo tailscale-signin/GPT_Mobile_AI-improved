@@ -33,7 +33,7 @@ internal fun List<VoiceBenchObservation>.summarize(label: String): VoiceBenchRes
             VoiceSpeechBenchmarkBackendResult.median(times)?.let { add(VoiceBenchMetric(caption, it, "ms", times.size)) }
         }
     }
-    return VoiceBenchResult(label, status, mapNotNull { it.reason }.distinct().singleOrNull(), count { it.metrics.isNotEmpty() || it.status == VoiceBenchStatus.MEASURED }, metrics)
+    return VoiceBenchResult(label, status, if (isEmpty()) "NO_OBSERVATIONS" else mapNotNull { it.reason }.distinct().singleOrNull(), count { it.metrics.isNotEmpty() || it.status == VoiceBenchStatus.MEASURED }, metrics)
 }
 
 internal fun elapsedVoiceBenchMs(start: Long) = (System.nanoTime() - start) / 1_000_000
@@ -94,7 +94,7 @@ internal class VoiceBenchProbes(
                     capture.recycle(samples)
                 }
                 val ok = frames >= 8_000
-                VoiceBenchObservation(
+                rows += VoiceBenchObservation(
                     "capture-${batch}ms",
                     if (ok) VoiceBenchStatus.MEASURED else VoiceBenchStatus.FAILED,
                     if (ok) null else "INSUFFICIENT_CAPTURE",

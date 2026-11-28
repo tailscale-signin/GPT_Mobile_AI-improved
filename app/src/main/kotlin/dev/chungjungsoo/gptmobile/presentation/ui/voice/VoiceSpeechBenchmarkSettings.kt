@@ -74,7 +74,7 @@ internal fun VoiceSpeechBenchmarkSettings(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val suite = state.suite
     VoiceSettingsSection("Voice benchmark")
-    Text("The full benchmark briefly samples the microphone, plays test speech, and checks recognition, voices, captions and each installed processor route. A selected CUDA Gateway receives only fixed test phrases. Sustained tests run for 1, 5 and 10 minutes per route. A fully equipped phone can take hours. Successful CPU calibration updates Auto threads. You can stop and export completed measurements.", style = MaterialTheme.typography.bodySmall)
+    Text("The full benchmark briefly samples the microphone, plays test speech, and checks recognition, voices, captions and each installed processor route. A selected CUDA Gateway receives only fixed test phrases. Sustained tests run for 1, 5 and 10 minutes per route. Quick engine screening runs before the longer comparisons. A fully equipped phone can take hours. Successful CPU calibration updates Auto threads. You can stop, export, and continue a compatible local campaign.", style = MaterialTheme.typography.bodySmall)
     Button(
         onClick = {
             if (state.running) {
@@ -98,6 +98,17 @@ internal fun VoiceSpeechBenchmarkSettings(
             Modifier.padding(start = 8.dp)
         )
     }
+    if (!state.running && suite?.hasUnfinishedStages == true && suite.continuationSignature != null &&
+        suite.state in setOf("CANCELLED", "INTERRUPTED", "THERMAL_LIMIT") && gateway == null
+    ) {
+        TextButton(
+            onClick = {
+                viewModel.startFull(voice ?: KokoroVoice.HEART, threads, speechRate, captionOffsetMs, streamingKokoroVoice, performance(), feedback(), gateway, beforeStart, resume = true)
+            },
+            enabled = enabled && state.loaded && !state.nativeCleanupPending,
+            modifier = Modifier.testTag("voice_speech_benchmark_resume")
+        ) { Text("Continue unfinished benchmark") }
+    }
     if (state.running && suite == null) {
         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         Text("Checking installed models…", style = MaterialTheme.typography.bodySmall)
@@ -114,6 +125,9 @@ internal fun VoiceSpeechBenchmarkSettings(
                 Text(listOfNotNull(fixture, "${report.completedSamples} samples recorded").joinToString(" · "), style = MaterialTheme.typography.bodySmall)
             }
         }
+        if (suite.resumedFromRunId != null) {
+            Text("${suite.reusedStageIndices.size} stages retained from an earlier campaign. New measurements have a separate observation window.", style = MaterialTheme.typography.bodySmall)
+        }
         val counts = suite.results.groupingBy { it.status }.eachCount()
         Text(counts.entries.joinToString(" · ") { "${it.value} ${it.key.display()}" }, style = MaterialTheme.typography.bodySmall)
         if (!state.running) {
@@ -122,6 +136,13 @@ internal fun VoiceSpeechBenchmarkSettings(
                 label = "Export full voice benchmark",
                 tag = "voice_benchmark_suite_export"
             ) { output -> viewModel.exportSuite(suite, output) }
+            if (suite.resumedFromRunId != null) {
+                VoiceDiagnosticExportControl(
+                    content = BenchmarkExportContent.VOICE_SUITE,
+                    label = "Export preceding interrupted benchmark",
+                    tag = "voice_benchmark_previous_suite_export"
+                ) { output -> viewModel.exportPreviousSuite(suite, output) }
+            }
             var expanded by rememberSaveable(suite.runId) { mutableStateOf(false) }
             TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide stage results" else "Show stage results") }
             if (expanded) {

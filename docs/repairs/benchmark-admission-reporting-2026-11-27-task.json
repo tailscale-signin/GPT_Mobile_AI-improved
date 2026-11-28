@@ -7,7 +7,7 @@
   "start_head": "d45c75f0161c8377ff9041e42c4e8715c6eed1f9",
   "pull_request": 2651,
   "source_export": "benchmarks-1795830169556.json",
-  "state": "ready_for_draft_push",
+  "state": "ci_fixture_correction_ready",
   "authorization": "Implement all findings, push draft, require green checks, merge to main, require main green, publish. Preserve concurrent commits.",
   "workstreams": [
     "bounded resource admission and durable preparation",
@@ -82,12 +82,34 @@
       "android": "0.9.66.19",
       "versionCode": 153,
       "gateway": "18.1.6"
+    },
+    {
+      "check": "First exact-head hosted Android unit-test compilation",
+      "sourceSha": "238f4c5b1c8c9032179da237f05d2f1dcfea5e05",
+      "result": "failed_test_fixture_compilation",
+      "workflowRuns": [
+        46106276846,
+        46106276930
+      ],
+      "jobs": [
+        140859631460,
+        140859631306
+      ],
+      "reason": "Four newly added PlatformV2 test fixtures omitted the required profile display-name argument. Production compilation passed in both jobs.",
+      "correction": "Supply explicit names in BenchmarkAuditBatchIntegrationTest, BenchmarkBatchRunnerTest and BenchmarkStoreTest; rerun hosted gates at the corrected head.",
+      "correctionValidation": {
+        "ktlint": "passed",
+        "canonicalHostTests": 850,
+        "expectedSkippedTests": 1,
+        "generatedReferences": "passed",
+        "hostedAndroid": "pending_corrected_commit"
+      }
     }
   ],
   "release": {
     "merged": false,
     "published": false
   },
-  "concurrentHeadObserved": "d45c75f0161c8377ff9041e42c4e8715c6eed1f9",
+  "concurrentHeadObserved": "238f4c5b1c8c9032179da237f05d2f1dcfea5e05",
   "publicationTransport": "Connected GitHub API with expected-head fast-forward update; shell GitHub push credential unavailable."
 }

@@ -417,7 +417,7 @@ class BenchmarkBatchRunnerTest {
         }
         entered.await()
         try {
-            for (profile in listOf(PlatformV2(uid = "blank-gateway", compatibleType = ClientType.LLAMA, model = ""), PlatformV2(uid = "no-credential", model = "selected-model"))) {
+            for (profile in listOf(PlatformV2(uid = "blank-gateway", name = "Blank Gateway", compatibleType = ClientType.LLAMA, model = ""), PlatformV2(uid = "no-credential", name = "No credential", model = "selected-model"))) {
                 val selected = BenchmarkBatch("invalid-${profile.uid}", BenchmarkMode.QUICK, 1, listOf(BenchmarkQueueItem(0, profile, "invalid-run-${profile.uid}", "config")))
                 store.checkpoint(selected)
                 var validated = false

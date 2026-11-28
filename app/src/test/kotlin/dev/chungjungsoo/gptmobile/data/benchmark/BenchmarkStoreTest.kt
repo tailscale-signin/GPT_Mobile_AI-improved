@@ -29,7 +29,7 @@ class BenchmarkStoreTest {
     @Test fun recoveredPreparationCannotRemainRunningOrFabricateAnExecution() = runBlocking {
         val store = BenchmarkStore(ApplicationProvider.getApplicationContext<Context>())
         try {
-            val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "preparation-profile", model = "model")
+            val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "preparation-profile", name = "Preparation profile", model = "model")
             val cases = listOf(BenchmarkCase("case", "Case", "task", "Reply READY", "READY"))
             for (userStopped in listOf(false, true)) {
                 val id = "preparation-$userStopped"

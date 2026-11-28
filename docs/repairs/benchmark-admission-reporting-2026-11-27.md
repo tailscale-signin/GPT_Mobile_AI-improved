@@ -62,6 +62,12 @@ identity rather than requiring the wrapper instance to be identical. The GitHub
 saved-receipt test now expects the current partial-coverage wording while retaining
 its blocked outcome, missing-tool reason, and saved source-read assertions.
 
+The first hosted pass at `238f4c5` compiled production sources, then caught four
+new test fixtures missing the required `PlatformV2.name` argument in three
+benchmark test classes. The correction supplies explicit profile display names;
+full hosted checks must qualify the corrected commit. Preview run `46106276846`
+and Marketplace run `46106276930` retain the original compiler evidence.
+
 ## Validation and release
 
 Behavioral tests cover queue admission and cancellation, manifest accounting,

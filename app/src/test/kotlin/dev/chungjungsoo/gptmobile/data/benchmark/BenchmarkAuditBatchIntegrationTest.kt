@@ -152,7 +152,7 @@ class BenchmarkAuditBatchIntegrationTest {
     @Test fun userStopDuringReadinessKeepsTheUserOriginAndOneCausalEvent() = runBlocking {
         val store = BenchmarkStore(context)
         try {
-            val profile = PlatformV2(uid = "readiness-stop", model = "model", token = "benchmark-test-key")
+            val profile = PlatformV2(uid = "readiness-stop", name = "Readiness stop", model = "model", token = "benchmark-test-key")
             val settings = mockk<SettingRepository>()
             coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
             val chats = mockk<ChatRepository>()

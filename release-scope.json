@@ -142,7 +142,10 @@
     "Invalidate both warmed translation factories immediately after explicit rate, bucket or incremental-input changes, and reject delayed preparation from an obsolete configuration or generation.",
     "Require all nine mandatory native C++ suites to report executed passing cases, retaining checked JUnit evidence alongside the model and cancellation verification.",
     "Keep the pinned sentencepiece dependency static through its legacy CMake option boundary so Android streaming recognition links both required APIs on arm64-v8a and x86_64, without changing caller configuration.",
-    "Preserve accepted single-language recognition intent and captured offline privacy through delayed support checks; reject changed automatic-translation selections and retain current online-consent and room-identity checks."
+    "Preserve accepted single-language recognition intent and captured offline privacy through delayed support checks; reject changed automatic-translation selections and retain current online-consent and room-identity checks.",
+    "Keep the complete voice-session saved and transient state in smaller Compose initializer functions while preserving state identity, keys and microphone/translation behavior.",
+    "Keep the caption-verification types used by the minified speech-test boundary and align the installed-model test label with the production status.",
+    "Restore normal release R8 optimization with all native and reflection keep rules retained; require the unchanged APK-size limits and full optimized device gates before publication."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not certify the broader milestone or unexecuted scenarios.",
@@ -1257,7 +1260,10 @@
     "docs/repairs/native-host-execution-evidence-2026-11-28-task.json",
     "docs/repairs/streaming-sentencepiece-linkage-2026-11-28-task.json",
     "docs/repairs/android-recognition-accepted-intent-2026-11-28-task.json",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidSpeechQualificationTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidSpeechQualificationTest.kt",
+    "app/proguard-rules.pro",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/LocalVoicePluginInstrumentedTest.kt",
+    "docs/repairs/voice-release-qualification-2026-11-28-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.19",

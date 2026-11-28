@@ -2,7 +2,8 @@
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 
--dontoptimize
+# Keep normal R8 optimization enabled. Native and reflective entry points have
+# explicit keep rules below and are exercised by the minified device gates.
 -dontwarn **
 -ignorewarnings
 

@@ -187,7 +187,7 @@ class LocalVoicePluginInstrumentedTest {
             assertEquals(0, removed)
             state.value = LocalVoiceModelState(LocalVoiceModelStatus.READY)
         }
-        compose.onNodeWithText("Installed · Recognition works offline").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Installed · Model files verified").performScrollTo().assertIsDisplayed()
         compose.onAllNodesWithTag("download_local_voice").assertCountEquals(0)
         compose.onNodeWithText("Remove speech model").performScrollTo().assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1, removed) }

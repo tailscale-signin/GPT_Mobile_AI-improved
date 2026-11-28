@@ -24,6 +24,9 @@
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceStreamFrames { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceStreamCue { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceWordCueProvenance { *; }
+# The separate test APK reflects and calls these caption-verification types.
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionWordCoverage { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionWordCoverageResult { *; }
 -keep class dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend { *; }
 # The minified test APK opens the real streaming output and observes its Android playback clock.
 -keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore { *; }

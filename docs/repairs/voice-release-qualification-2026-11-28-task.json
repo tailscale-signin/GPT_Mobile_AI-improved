@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6435462ac6f306d63b720205a9f2aafc33de1e4d",
+  "working_branch": "feature/windows-native-benchmark-kit",
+  "observed_head": "8b828fe8f1b2538e395f3c7a72ef4b8a3e81d5cb",
+  "intent": "Repair four current-head Android qualification failures, then require fresh branch and merged-main checks before the requested paired Android/Gateway publication.",
+  "status": "Implementation reviewed locally; full exact-head Android qualification is pending.",
+  "observed_failures": [
+    {
+      "workflow_run": 46127231416,
+      "job": 140926714746,
+      "failure": "VoiceChatSessionScreen is18,425 DEX code units, above the exclusive 16,383 limit. The remaining screen method checks passed."
+    },
+    {
+      "workflow_run": 46127231365,
+      "jobs": [
+        140926886573,
+        140926886389
+      ],
+      "failure": "The plugin test scrolls to an obsolete installed label; production now correctly says Installed · Model files verified."
+    },
+    {
+      "workflow_run": 46127231227,
+      "jobs": [
+        140933607417,
+        140933607402,
+        140933607380,
+        140933607354
+      ],
+      "failure": "JUnit reflection cannot resolve the caption coverage result type omitted from the already-shrunk nativeSmoke application. Real speech tests do not begin."
+    },
+    {
+      "workflow_run": 46127231343,
+      "job": 140927983451,
+      "failure": "Universal release APK 242,953,303 bytes exceeds unchanged 241,172,480-byte budget by 1,780,823 bytes. Both split APKs pass."
+    }
+  ],
+  "changes": [
+    "Move 34 saved and 20 transient voice-session state initializers into two private composables in the same source file. Preserve all initial values, saveable keys, State handles and callback/effect bodies.",
+    "Retain exactly the two caption-verification types referenced across the separately compiled nativeSmoke test-APK boundary. Production keep rules and real model assertions remain intact.",
+    "Update only the plugin test expected label, preserving scrolling, visibility and distinct download/cancel/remove assertions.",
+    "Remove the global R8 optimization opt-out while retaining every native/reflection keep rule. The historical workaround came from AGP9.2.1/Kotlin2.3.21; current pins are AGP9.4.1/Kotlin2.4.20. Actual full-build viability and byte savings remain to be measured in hosted release/device gates."
+  ],
+  "validation": {
+    "voice_state_extraction": {
+      "compiler": "Kotlin2.4.20/Compose compiler with Compose runtime1.12.1 and D8 API31 debug",
+      "initializer_probe_dex_units": {
+        "original": 4026,
+        "extracted_caller": 1252,
+        "saved_helper": 1851,
+        "transient_helper": 1212
+      },
+      "behavior": "Three actual Compose runtime cases pass: state-handle identity and live callbacks, keyed replacement, and all34 saved values restored while transient state resets. Missing-runtime-key control has the expected failure.",
+      "evidence_sha256": "0e4819381740892ef86291a9ce993554877929dd33c86d7607d99372eaa17703",
+      "limit": "Initializer probe is not a full packaged-screen measurement or Android process-death proof. The actual APK method gate remains required."
+    },
+    "caption_boundary": {
+      "compiler": "Kotlin2.4.20 and actual R8 9.4.14, Java21 classfile mode",
+      "behavior": "A separately compiled test reproduces NoClassDefFoundError with old nativeSmoke rules; the precise new roots retain both types and permit reflection plus missing-middle, complete-word and grouped-word coverage logic.",
+      "evidence_sha256": "1a6972f7c03c8504a6b05fd71bafc3e652c4931304fec75634673a12ea0c7a3b",
+      "limit": "The full minified Android application and actual model/device suites must pass on the new revision."
+    },
+    "historical_8b_device_evidence": {
+      "apis": [
+        34,
+        36
+      ],
+      "behavior": "The required microphone and voice-conversation cases executed successfully on both APIs, with all five PNGs reviewed per API. The overall jobs failed only on the obsolete plugin label.",
+      "evidence_sha256": "ab453bd239361e66f9e8a54f7ce3fa631640582a765b01d6126d7f6ab460c20f",
+      "limit": "Historical8b evidence is not approval of the changed revision."
+    },
+    "size_investigation": {
+      "behavior": "Extra compression on the available exact-current and byte-pinned native members saved no bytes; no safe duplicate model/native payload was found. Historical safe native folding without address-significance metadata was byte-identical, and a metadata-enabled rebuild was killed before a linked result.",
+      "decision": "Use normal R8 optimization as the next measured candidate. Do not integrate unmeasured native flag changes or alter download budgets.",
+      "candidate_status": "Full optimized APK size and nativeSmoke qualification pending; no saving or runtime success claimed.",
+      "current_release_toolchain": "AGP9.4.1 embeds R8 9.4.24; the isolated caption rule probe uses separately identified command-line R8 9.4.14."
+    },
+    "canonical_host_gate": {
+      "command": "KOKORO_TEST_CMAKE=/workspace/scratch/0f34c62a99bc/android-sdk/cmake/3.22.1/bin/cmake bash scripts/validate-local.sh fast",
+      "exit": 0,
+      "tests_run": 890,
+      "tests_passed": 889,
+      "tests_skipped": 1,
+      "log_sha256": "3781679dc7a592798e4416b24eba90ef8d71fc1dcb01f3690fd70cf814b8d518",
+      "scope": "Canonical host checks; six actual CMake configuration cases enabled. Full optimized APK, device, exact-head and merged-main checks remain required."
+    },
+    "hosted_gate": {
+      "status": "PENDING exact changed-head and merged-main validation"
+    }
+  },
+  "source_sha256": {
+    "app/proguard-rules.pro": "2e5df0831f0e2e238fc7be31ab62dccb901b3654e691559bbab010454f28cfd4",
+    "app/app-native-smoke-rules.pro": "077a32cbf72a7e048b6e288c20d754a58f7fb13576a82923afcf6732daf969bd",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": "590f8befc2ee7315368f47fbcf749a94f7bd50c148f0a040595cd06a065edfcb",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/LocalVoicePluginInstrumentedTest.kt": "02dc93b662dd14cf7549abb0bd2ce43bbb2fded071e3e58297e4e69e8110c6f2"
+  },
+  "references": [
+    "https://developer.android.com/topic/performance/app-optimization/global-options",
+    "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/commit/ce76e10e7e8fe7a81ba52a510b72bfa5922f1b10"
+  ],
+  "preserved": [
+    "All APK size, packaged method-size, Gradle memory, native input identity, signing, alignment and current-head/main publication gates remain unchanged.",
+    "Supported model and plugin payloads, licences, microphone listening behavior, translation ownership and online consent boundaries remain intact.",
+    "No physical GPU/NPU, acoustic, thermal or battery qualification is inferred from host/emulator checks."
+  ]
+}

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -46,6 +47,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableFloatState
+import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -240,6 +244,160 @@ internal fun VoiceChatScreen(
     )
 }
 
+/** Saveable State handles stay shared by the screen's effects and action callbacks. */
+private class VoiceChatSessionSavedState(
+    val listeningEntry: VoiceListeningEntry,
+    val retainedMessageId: MutableIntState,
+    val retainedRunId: MutableState<String>,
+    val retainedRevision: MutableIntState,
+    val chatView: MutableState<Boolean>,
+    val retainedTranscript: MutableState<String>,
+    val retainedTranslationSource: MutableState<String?>,
+    val retainedReply: MutableState<String>,
+    val retainedReview: MutableState<Boolean>,
+    val retainedSubmittedRequestId: MutableState<String?>,
+    val retainedMuted: MutableState<Boolean>,
+    val listenAfterPermission: MutableState<Boolean>,
+    val permissionRequestInFlight: MutableState<Boolean>,
+    val captions: MutableState<Boolean>,
+    val settingsOpen: MutableState<Boolean>,
+    val draft: MutableState<String>,
+    val language: MutableState<String>,
+    val recognitionBackend: MutableState<VoiceRecognitionBackend>,
+    val recognitionModel: MutableState<VoiceRecognitionModel>,
+    val recognitionCompute: MutableState<VoiceRecognitionCompute>,
+    val recognitionThreads: MutableIntState,
+    val kokoroVoice: MutableState<KokoroVoice?>,
+    val kokoroThreads: MutableIntState,
+    val editBeforeSend: MutableState<Boolean>,
+    val spokenReplies: MutableState<Boolean>,
+    val buttonSounds: MutableState<Boolean>,
+    val rate: MutableFloatState,
+    val pause: MutableState<VoicePauseDuration>,
+    val performance: MutableState<VoicePerformanceMode>,
+    val speakWhileGenerating: MutableState<Boolean>,
+    val kokoroBucket: MutableState<MediaPipeKokoroBucket>,
+    val incrementalSpeech: MutableState<Boolean>,
+    val nativeModelVariant: MutableState<KokoroModelVariant>,
+    val preferencesInitialized: MutableState<Boolean>
+)
+
+@Composable
+private fun rememberVoiceChatSessionState(initialChatView: Boolean, stores: VoiceModelStores): VoiceChatSessionSavedState = VoiceChatSessionSavedState(
+    listeningEntry = rememberSaveable(saver = Saver<VoiceListeningEntry, Boolean>(save = { it.consumed }, restore = { VoiceListeningEntry(it) })) {
+        VoiceListeningEntry()
+    },
+    retainedMessageId = rememberSaveable { mutableIntStateOf(0) },
+    retainedRunId = rememberSaveable { mutableStateOf("") },
+    retainedRevision = rememberSaveable { mutableIntStateOf(-1) },
+    chatView = rememberSaveable { mutableStateOf(initialChatView) },
+    retainedTranscript = rememberSaveable { mutableStateOf("") },
+    retainedTranslationSource = rememberSaveable { mutableStateOf<String?>(null) },
+    retainedReply = rememberSaveable { mutableStateOf("") },
+    retainedReview = rememberSaveable { mutableStateOf(false) },
+    retainedSubmittedRequestId = rememberSaveable { mutableStateOf<String?>(null) },
+    retainedMuted = rememberSaveable { mutableStateOf(false) },
+    listenAfterPermission = rememberSaveable { mutableStateOf(false) },
+    permissionRequestInFlight = rememberSaveable { mutableStateOf(false) },
+    captions = rememberSaveable { mutableStateOf(true) },
+    settingsOpen = rememberSaveable { mutableStateOf(false) },
+    draft = rememberSaveable { mutableStateOf("") },
+    language = rememberSaveable { mutableStateOf(SpeechLanguages.recognitionDefault()) },
+    recognitionBackend = rememberSaveable { mutableStateOf(VoiceRecognitionBackend.LOCAL_MOONSHINE) },
+    recognitionModel = rememberSaveable { mutableStateOf(VoiceRecognitionModel.MOONSHINE_TINY) },
+    recognitionCompute = rememberSaveable { mutableStateOf(VoiceRecognitionCompute.CPU) },
+    recognitionThreads = rememberSaveable { mutableIntStateOf(0) },
+    kokoroVoice = rememberSaveable { mutableStateOf<KokoroVoice?>(null) },
+    kokoroThreads = rememberSaveable { mutableIntStateOf(VoiceCpuSchedulingPolicy.AUTO) },
+    editBeforeSend = rememberSaveable { mutableStateOf(false) },
+    spokenReplies = rememberSaveable { mutableStateOf(true) },
+    buttonSounds = rememberSaveable { mutableStateOf(true) },
+    rate = rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(STANDARD_SPEECH_RATE) },
+    pause = rememberSaveable { mutableStateOf(VoicePauseDuration.NATURAL) },
+    performance = rememberSaveable { mutableStateOf(VoicePerformanceMode.AUTO) },
+    speakWhileGenerating = rememberSaveable { mutableStateOf(true) },
+    kokoroBucket = rememberSaveable { mutableStateOf(MediaPipeKokoroBucket.AUTO) },
+    incrementalSpeech = rememberSaveable { mutableStateOf(true) },
+    nativeModelVariant = rememberSaveable { mutableStateOf(stores.kokoroVariant) },
+    preferencesInitialized = rememberSaveable { mutableStateOf(false) }
+)
+
+private class VoiceChatSessionTransientState(
+    val feedback: VoiceButtonFeedback,
+    val profilePreflightReady: MutableState<Boolean>,
+    val profilePreflightError: MutableState<String?>,
+    val playbackPrimed: MutableState<Boolean>,
+    val playbackTick: MutableIntState,
+    val translationReplayGeneration: MutableIntState,
+    val preferencesApplied: MutableState<Boolean>,
+    val permission: MutableState<Boolean>,
+    val synthesis: MutableState<VoiceSynthesisPreferences>,
+    val translationMode: MutableState<Boolean>,
+    val translationPair: MutableState<VoiceTranslationPair>,
+    val translationSetupNotice: MutableState<String?>,
+    val translationFactories: MutableState<VoiceTranslationFactoryCache>,
+    val microphoneCuePrepared: MutableState<Boolean>,
+    val modelChangeRunning: MutableState<Boolean>,
+    val modelChangeError: MutableState<String?>,
+    val tuning: MutableState<VoiceTuningPreferences>,
+    val route: MutableState<String>,
+    val routeOpen: MutableState<Boolean>,
+    val remaining: MutableIntState
+)
+
+@Composable
+private fun rememberVoiceChatTransientState(
+    context: Context,
+    model: ChatViewModel,
+    roomId: Int,
+    privateRoom: Boolean,
+    selectedProfile: PlatformV2?,
+    runtime: VoiceRuntime
+): VoiceChatSessionTransientState {
+    val profilePreflightReady = remember(model, roomId, privateRoom, selectedProfile) { mutableStateOf(false) }
+    val profilePreflightError = remember(model, roomId, privateRoom, selectedProfile) { mutableStateOf<String?>(null) }
+    val playbackPrimed = remember(runtime) { mutableStateOf(runtime.playback.initialized) }
+    val playbackTick = remember(runtime) { mutableIntStateOf(0) }
+    val translationReplayGeneration = remember(runtime) { mutableIntStateOf(0) }
+    val preferencesApplied = remember(runtime) { mutableStateOf(false) }
+    val permission = remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
+    val synthesis = remember { mutableStateOf(VoiceSynthesisPreferences()) }
+    val translationMode = remember { mutableStateOf(false) }
+    val translationPair = remember { mutableStateOf(VoiceTranslationPair()) }
+    val translationSetupNotice = remember { mutableStateOf<String?>(null) }
+    val translationFactories = remember(runtime) { mutableStateOf(VoiceTranslationFactoryCache()) }
+    val feedback = remember(context) { VoiceButtonFeedback(context.applicationContext) }
+    val microphoneCuePrepared = remember(feedback) { mutableStateOf(false) }
+    val modelChangeRunning = remember { mutableStateOf(false) }
+    val modelChangeError = remember { mutableStateOf<String?>(null) }
+    val tuning = remember { mutableStateOf(VoiceTuningPreferences()) }
+    val route = remember { mutableStateOf(runtime.system.routeName()) }
+    val routeOpen = remember { mutableStateOf(false) }
+    val remaining = remember { mutableIntStateOf(0) }
+    return VoiceChatSessionTransientState(
+        feedback = feedback,
+        profilePreflightReady = profilePreflightReady,
+        profilePreflightError = profilePreflightError,
+        playbackPrimed = playbackPrimed,
+        playbackTick = playbackTick,
+        translationReplayGeneration = translationReplayGeneration,
+        preferencesApplied = preferencesApplied,
+        permission = permission,
+        synthesis = synthesis,
+        translationMode = translationMode,
+        translationPair = translationPair,
+        translationSetupNotice = translationSetupNotice,
+        translationFactories = translationFactories,
+        microphoneCuePrepared = microphoneCuePrepared,
+        modelChangeRunning = modelChangeRunning,
+        modelChangeError = modelChangeError,
+        tuning = tuning,
+        route = route,
+        routeOpen = routeOpen,
+        remaining = remaining
+    )
+}
+
 @Composable
 private fun VoiceChatSessionScreen(
     onEnd: () -> Unit,
@@ -275,31 +433,28 @@ private fun VoiceChatSessionScreen(
     val activeProfiles by model.activePlatformUids.collectAsStateWithLifecycle()
     val room by model.chatRoom.collectAsStateWithLifecycle()
     val chatModels by model.chatPlatformModels.collectAsStateWithLifecycle()
-    val listeningEntry = rememberSaveable(saver = Saver<VoiceListeningEntry, Boolean>(save = { it.consumed }, restore = { VoiceListeningEntry(it) })) {
-        VoiceListeningEntry()
-    }
-    var retainedMessageId by rememberSaveable { mutableIntStateOf(0) }
-    var retainedRunId by rememberSaveable { mutableStateOf("") }
-    var retainedRevision by rememberSaveable { mutableIntStateOf(-1) }
+    val savedState = rememberVoiceChatSessionState(initialChatView, stores)
+    val listeningEntry = savedState.listeningEntry
+    var retainedMessageId by savedState.retainedMessageId
+    var retainedRunId by savedState.retainedRunId
+    var retainedRevision by savedState.retainedRevision
     fun retainMessage(identity: VoiceMessageIdentity) {
         retainedMessageId = identity.messageId
         retainedRunId = identity.runId
         retainedRevision = identity.revision
     }
-    var chatView by rememberSaveable { mutableStateOf(initialChatView) }
+    var chatView by savedState.chatView
     val selectedProfile = activeProfiles.singleOrNull()?.let { uid -> profiles.singleOrNull { it.uid == uid && it.enabled } }
         ?.let { resolvePlatformModel(it, chatModels) }
-    var profilePreflightReady by remember(model, room.id, room.privacyModeLocked, selectedProfile) { mutableStateOf(false) }
-    var profilePreflightError by remember(model, room.id, room.privacyModeLocked, selectedProfile) { mutableStateOf<String?>(null) }
     val approvals by model.pendingToolApprovals.collectAsStateWithLifecycle(emptyList())
     val inputs by model.pendingMcpInput.collectAsStateWithLifecycle()
     val consent by model.pendingFreeToolConsent.collectAsStateWithLifecycle()
-    var retainedTranscript by rememberSaveable { mutableStateOf("") }
-    var retainedTranslationSource by rememberSaveable { mutableStateOf<String?>(null) }
-    var retainedReply by rememberSaveable { mutableStateOf("") }
-    var retainedReview by rememberSaveable { mutableStateOf(false) }
-    var retainedSubmittedRequestId by rememberSaveable { mutableStateOf<String?>(null) }
-    var retainedMuted by rememberSaveable { mutableStateOf(false) }
+    var retainedTranscript by savedState.retainedTranscript
+    var retainedTranslationSource by savedState.retainedTranslationSource
+    var retainedReply by savedState.retainedReply
+    var retainedReview by savedState.retainedReview
+    var retainedSubmittedRequestId by savedState.retainedSubmittedRequestId
+    var retainedMuted by savedState.retainedMuted
     val speakingNotification by runtimeOwner.background.notification.collectAsStateWithLifecycle()
     val runtime = remember(model, stores, runtimeOwner) {
         runtimeOwner.acquire(model, stores) { session ->
@@ -307,6 +462,9 @@ private fun VoiceChatSessionScreen(
             if (retainedMuted) session.mute()
         }
     }
+    val transientState = rememberVoiceChatTransientState(context, model, room.id, room.privacyModeLocked, selectedProfile, runtime)
+    var profilePreflightReady by transientState.profilePreflightReady
+    var profilePreflightError by transientState.profilePreflightError
     val systemAudio = runtime.system
     val localRecognition = runtime.recognition
     val recognitionEvidence by localRecognition.executionEvidence.collectAsStateWithLifecycle()
@@ -317,9 +475,9 @@ private fun VoiceChatSessionScreen(
     val tuningConfiguration = runtime.tuningConfiguration
     val playback = runtime.playback
     val replyProjection = runtime.replyProjection
-    var playbackPrimed by remember(runtime) { mutableStateOf(playback.initialized) }
-    var playbackTick by remember(runtime) { mutableIntStateOf(0) }
-    var translationReplayGeneration by remember(runtime) { mutableIntStateOf(0) }
+    var playbackPrimed by transientState.playbackPrimed
+    var playbackTick by transientState.playbackTick
+    var translationReplayGeneration by transientState.translationReplayGeneration
     var activeMessage by runtime.activeMessage
     var manualMessage by runtime.manualMessage
     var refreshMutedBaseline by runtime.refreshMutedBaseline
@@ -338,36 +496,36 @@ private fun VoiceChatSessionScreen(
     }
     val enabled = features.isToolPluginEnabled(ToolPluginId.VOICE_CHAT)
     val savedPreferences by voiceSettings.preferences.collectAsStateWithLifecycle()
-    var preferencesApplied by remember(runtime) { mutableStateOf(false) }
+    var preferencesApplied by transientState.preferencesApplied
     val currentEnabled by rememberUpdatedState(enabled && loaded && roomReady && backend.loaded)
     val currentReadyForNewWork by rememberUpdatedState(preferencesApplied)
-    var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
-    var listenAfterPermission by rememberSaveable { mutableStateOf(false) }
-    var permissionRequestInFlight by rememberSaveable { mutableStateOf(false) }
+    var permission by transientState.permission
+    var listenAfterPermission by savedState.listenAfterPermission
+    var permissionRequestInFlight by savedState.permissionRequestInFlight
     fun cancelListeningIntent() {
         translationReplayGeneration++
         listeningEntry.cancel()
         listenAfterPermission = false
         session.stopAutomaticListening()
     }
-    var captions by rememberSaveable { mutableStateOf(true) }
-    var settingsOpen by rememberSaveable { mutableStateOf(false) }
-    var draft by rememberSaveable { mutableStateOf("") }
-    var language by rememberSaveable { mutableStateOf(SpeechLanguages.recognitionDefault()) }
-    var recognitionBackend by rememberSaveable { mutableStateOf(VoiceRecognitionBackend.LOCAL_MOONSHINE) }
-    var recognitionModel by rememberSaveable { mutableStateOf(VoiceRecognitionModel.MOONSHINE_TINY) }
-    var recognitionCompute by rememberSaveable { mutableStateOf(VoiceRecognitionCompute.CPU) }
-    var recognitionThreads by rememberSaveable { mutableIntStateOf(0) }
+    var captions by savedState.captions
+    var settingsOpen by savedState.settingsOpen
+    var draft by savedState.draft
+    var language by savedState.language
+    var recognitionBackend by savedState.recognitionBackend
+    var recognitionModel by savedState.recognitionModel
+    var recognitionCompute by savedState.recognitionCompute
+    var recognitionThreads by savedState.recognitionThreads
     val recognitionConfiguration = VoiceRecognitionConfiguration(recognitionModel, recognitionCompute, recognitionThreads).supported()
     val recognitionStore = remember(stores, recognitionConfiguration) { stores.recognition.store(recognitionConfiguration) }
     val localModel by recognitionStore.state.collectAsStateWithLifecycle()
     LaunchedEffect(recognitionStore) { recognitionStore.refresh(forceVerification = false) }
-    var synthesis by remember { mutableStateOf(VoiceSynthesisPreferences()) }
+    var synthesis by transientState.synthesis
     fun activeSpeechProfile() = backend.synthesisProfile(synthesis)
-    var translationMode by remember { mutableStateOf(false) }
-    var translationPair by remember { mutableStateOf(VoiceTranslationPair()) }
-    var translationSetupNotice by remember { mutableStateOf<String?>(null) }
-    var translationFactories by remember(runtime) { mutableStateOf(VoiceTranslationFactoryCache()) }
+    var translationMode by transientState.translationMode
+    var translationPair by transientState.translationPair
+    var translationSetupNotice by transientState.translationSetupNotice
+    var translationFactories by transientState.translationFactories
     var translationOutput by runtime.translationOutput
     val translationModel = backend.streamingModels[MediaPipeSpeechEngine.POCKET_MULTILINGUAL]
     fun outputSelection() = selectVoicePlayback(backend.factory, activeSpeechProfile(), translationOutput)
@@ -381,13 +539,13 @@ private fun VoiceChatSessionScreen(
     }
     val selectedOutputFactory = outputSelection().factory
     VoiceOutputConfigurationEffect(preferencesApplied, kokoroOutput, selectedOutputFactory)
-    var kokoroVoice by rememberSaveable { mutableStateOf<KokoroVoice?>(null) }
-    var kokoroThreads by rememberSaveable { mutableIntStateOf(VoiceCpuSchedulingPolicy.AUTO) }
-    var editBeforeSend by rememberSaveable { mutableStateOf(false) }
-    var spokenReplies by rememberSaveable { mutableStateOf(true) }
-    var buttonSounds by rememberSaveable { mutableStateOf(true) }
-    val feedback = remember(context) { VoiceButtonFeedback(context.applicationContext) }
-    var microphoneCuePrepared by remember(feedback) { mutableStateOf(false) }
+    var kokoroVoice by savedState.kokoroVoice
+    var kokoroThreads by savedState.kokoroThreads
+    var editBeforeSend by savedState.editBeforeSend
+    var spokenReplies by savedState.spokenReplies
+    var buttonSounds by savedState.buttonSounds
+    val feedback = transientState.feedback
+    var microphoneCuePrepared by transientState.microphoneCuePrepared
     LaunchedEffect(feedback, buttonSounds) {
         microphoneCuePrepared = false
         if (buttonSounds) feedback.prepareStart()
@@ -402,17 +560,17 @@ private fun VoiceChatSessionScreen(
         }
     }
     SideEffect { session.microphoneFeedback = if (buttonSounds) feedback::start else null }
-    var rate by rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(STANDARD_SPEECH_RATE) }
-    var pause by rememberSaveable { mutableStateOf(VoicePauseDuration.NATURAL) }
-    var performance by rememberSaveable { mutableStateOf(VoicePerformanceMode.AUTO) }
-    var speakWhileGenerating by rememberSaveable { mutableStateOf(true) }
-    var kokoroBucket by rememberSaveable { mutableStateOf(MediaPipeKokoroBucket.AUTO) }
-    var incrementalSpeech by rememberSaveable { mutableStateOf(true) }
-    var nativeModelVariant by rememberSaveable { mutableStateOf(stores.kokoroVariant) }
-    var modelChangeRunning by remember { mutableStateOf(false) }
-    var modelChangeError by remember { mutableStateOf<String?>(null) }
-    var tuning by remember { mutableStateOf(VoiceTuningPreferences()) }
-    var preferencesInitialized by rememberSaveable { mutableStateOf(false) }
+    var rate by savedState.rate
+    var pause by savedState.pause
+    var performance by savedState.performance
+    var speakWhileGenerating by savedState.speakWhileGenerating
+    var kokoroBucket by savedState.kokoroBucket
+    var incrementalSpeech by savedState.incrementalSpeech
+    var nativeModelVariant by savedState.nativeModelVariant
+    var modelChangeRunning by transientState.modelChangeRunning
+    var modelChangeError by transientState.modelChangeError
+    var tuning by transientState.tuning
+    var preferencesInitialized by savedState.preferencesInitialized
     LaunchedEffect(model, enabled, roomReady, room.id, room.privacyModeLocked, selectedProfile, lifecycleState, settingsOpen) {
         profilePreflightReady = false
         profilePreflightError = null
@@ -631,9 +789,9 @@ private fun VoiceChatSessionScreen(
     LaunchedEffect(preferencesApplied, kokoroVoice, rate, kokoroBucket, incrementalSpeech, nativeModelVariant, synthesis) {
         if (preferencesApplied) backendOwner.configureSpeech(kokoroVoice, rate, kokoroBucket, incrementalSpeech, nativeModelVariant, synthesis)
     }
-    var route by remember { mutableStateOf(systemAudio.routeName()) }
-    var routeOpen by remember { mutableStateOf(false) }
-    var remaining by remember { mutableIntStateOf(0) }
+    var route by transientState.route
+    var routeOpen by transientState.routeOpen
+    var remaining by transientState.remaining
     DisposableEffect(audio, session) {
         systemAudio.routeChanged = {
             session.pause("audio_route_changed")
